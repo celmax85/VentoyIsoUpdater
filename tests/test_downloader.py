@@ -200,3 +200,23 @@ class TestDownloadFile:
 
         assert result == dest
         assert os.path.isfile(dest)
+
+    def test_unwrapped_iso_never_overwrites_an_existing_one(self, tmp_dir):
+        """If '<name>.iso' already exists next to the downloaded
+        '<name>.iso.zip', the unwrapped image gets a suffixed name instead
+        of silently replacing it."""
+        from core.downloader import _unwrap_disk_image_zip
+        existing = os.path.join(tmp_dir, "mt86plus_8.10_x86_64.iso")
+        with open(existing, "wb") as f:
+            f.write(b"user's own file")
+        zip_path = os.path.join(tmp_dir, "mt86plus_8.10_x86_64.iso.zip")
+        with open(zip_path, "wb") as f:
+            f.write(self._zip_bytes({"memtest.iso": b"new image"}))
+
+        result = _unwrap_disk_image_zip(zip_path)
+
+        assert result == os.path.join(tmp_dir, "mt86plus_8.10_x86_64_1.iso")
+        with open(existing, "rb") as f:
+            assert f.read() == b"user's own file"
+        with open(result, "rb") as f:
+            assert f.read() == b"new image"

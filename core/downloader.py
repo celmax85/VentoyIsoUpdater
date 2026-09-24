@@ -32,6 +32,7 @@ def _unwrap_disk_image_zip(zip_path: str) -> str:
     this specific single-image-file case (any other error also falls back
     to leaving the .zip as downloaded, rather than raising).
     """
+    tmp_extract = None
     try:
         with zipfile.ZipFile(zip_path) as z:
             members = [n for n in z.namelist() if not n.endswith("/")]
@@ -48,11 +49,21 @@ def _unwrap_disk_image_zip(zip_path: str) -> str:
             stripped = os.path.splitext(zip_path)[0]
             new_path = stripped if stripped.lower().endswith(_IMAGE_EXTS) \
                        else stripped + ext
+            # Never overwrite an image already sitting on the drive under
+            # that name: get a "_1", "_2"... suffixed name instead
+            from core.iso_manager import get_download_path
+            new_path = get_download_path(os.path.dirname(new_path),
+                                         os.path.basename(new_path))
 
             tmp_extract = new_path + ".part"
             with z.open(inner_name) as src, open(tmp_extract, "wb") as dst:
                 shutil.copyfileobj(src, dst)
-    except (zipfile.BadZipFile, OSError):
+    except (zipfile.BadZipFile, OSError, ValueError):
+        if tmp_extract and os.path.exists(tmp_extract):
+            try:
+                os.remove(tmp_extract)
+            except OSError:
+                pass
         return zip_path
 
     os.replace(tmp_extract, new_path)
