@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ventoy-iso-updater"
-version = "1.1.2"
+version = "1.2.0"
 description = "GUI to manage Ventoy USB keys: check for ISO updates, download, and manage themes"
 readme = "README.md"
 license = { text = "MIT" }
