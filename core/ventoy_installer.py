@@ -18,6 +18,9 @@ import requests
 from typing import Optional, Callable
 
 from core.logger import logger
+# Pure lookup module with no Tk dependency: lets the messages returned to
+# the setup wizard follow the UI language like the rest of the app
+from gui.i18n import t
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -550,10 +553,11 @@ def install_ventoy(
         # manually from a terminal.
         still_mounted = _unmount_device_linux(device)
         if still_mounted:
-            return False, (
-                f"Impossible de démonter {', '.join(still_mounted)} (occupé).\n"
-                f"Fermez tout gestionnaire de fichiers ou toute fenêtre qui a "
-                f"la clé USB ouverte, puis réessayez."
+            return False, t(
+                "Impossible de démonter {devices} (occupé).\n"
+                "Fermez tout gestionnaire de fichiers ou toute fenêtre qui a "
+                "la clé USB ouverte, puis réessayez.",
+                devices=", ".join(still_mounted),
             )
 
         # Picks the elevation tool
@@ -562,10 +566,11 @@ def install_ventoy(
         elif shutil.which("sudo"):
             cmd = ["sudo", ventoy_script, flag, device]
         else:
-            return False, (
-                f"Impossible d'obtenir les droits root.\n"
-                f"Exécutez manuellement :\n"
-                f"  sudo {ventoy_script} {flag} {device}"
+            return False, t(
+                "Impossible d'obtenir les droits root.\n"
+                "Exécutez manuellement :\n"
+                "  sudo {script} {flag} {device}",
+                script=ventoy_script, flag=flag, device=device,
             )
 
         try:
@@ -586,7 +591,7 @@ def install_ventoy(
                 on_output(output)
             return result.returncode == 0, output
         except subprocess.TimeoutExpired:
-            return False, "Délai d'attente dépassé."
+            return False, t("Délai d'attente dépassé.")
         except Exception as e:
             return False, str(e)
 
@@ -595,7 +600,7 @@ def install_ventoy(
         try:
             import ctypes
             if not ctypes.windll.shell32.IsUserAnAdmin():
-                return False, (
+                return False, t(
                     "Droits administrateur requis.\n"
                     "Relancez VentoyIsoUpdater en tant qu'administrateur."
                 )
@@ -607,4 +612,4 @@ def install_ventoy(
         except Exception as e:
             return False, str(e)
 
-    return False, "Système non supporté."
+    return False, t("Système non supporté.")

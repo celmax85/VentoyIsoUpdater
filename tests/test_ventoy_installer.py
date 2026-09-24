@@ -94,3 +94,18 @@ class TestPrepareVerifiedVentoy:
         _make_cached_release(cache_dir)
         with patch.object(vi, "_fetch_ventoy_checksum", return_value=None):
             assert vi.prepare_verified_ventoy(vi.find_cached_ventoy()) is None
+
+
+class TestInstallMessagesFollowUiLanguage:
+    def test_unmount_failure_is_translated(self):
+        from gui import i18n
+        try:
+            i18n.set_language("en")
+            with patch.object(vi.platform, "system", return_value="Linux"), \
+                 patch.object(vi.os, "chmod"), \
+                 patch.object(vi, "_unmount_device_linux", return_value=["/dev/sdb1"]):
+                ok, msg = vi.install_ventoy("/dev/sdb", "/x/Ventoy2Disk.sh")
+        finally:
+            i18n.set_language("fr")
+        assert not ok
+        assert msg.startswith("Could not unmount /dev/sdb1 (busy).")
