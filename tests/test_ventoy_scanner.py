@@ -212,3 +212,50 @@ class TestLoadDistrosDb:
             f.write("{ not valid json")
         with pytest.raises(Exception):
             load_distros_db(bad)
+
+
+class TestAutoMountUnmountedVentoy:
+    """_auto_mount_unmounted_ventoy_linux must only ever mount partitions of
+    a disk that carries a VTOYEFI partition — never an unrelated USB drive."""
+
+    def _run(self, blockdevices):
+        import json as _json
+        from unittest.mock import patch, MagicMock
+        import core.ventoy_scanner as vs
+
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            result = MagicMock(returncode=0, stdout="")
+            if cmd[0] == "lsblk":
+                result.stdout = _json.dumps({"blockdevices": blockdevices})
+            elif cmd[:2] == ["udisksctl", "mount"]:
+                result.stdout = f"Mounted {cmd[-1]} at /run/media/u/X."
+            return result
+
+        with patch.object(vs.shutil, "which", return_value="/usr/bin/udisksctl"), \
+             patch.object(vs.subprocess, "run", side_effect=fake_run), \
+             patch.object(vs, "_is_ventoy_mount", return_value=True):
+            vs._auto_mount_unmounted_ventoy_linux()
+        return [c for c in calls if c[:2] == ["udisksctl", "mount"]]
+
+    def test_unrelated_usb_disk_is_never_mounted(self):
+        mounts = self._run([{
+            "name": "sdb", "type": "disk", "hotplug": True, "children": [
+                {"name": "sdb1", "type": "part", "mountpoint": None,
+                 "fstype": "ntfs", "label": "BACKUP"},
+            ],
+        }])
+        assert mounts == []
+
+    def test_ventoy_data_partition_is_mounted_but_not_vtoyefi(self):
+        mounts = self._run([{
+            "name": "sdc", "type": "disk", "hotplug": True, "children": [
+                {"name": "sdc1", "type": "part", "mountpoint": None,
+                 "fstype": "exfat", "label": "Ventoy"},
+                {"name": "sdc2", "type": "part", "mountpoint": None,
+                 "fstype": "vfat", "label": "VTOYEFI"},
+            ],
+        }])
+        assert mounts == [["udisksctl", "mount", "-b", "/dev/sdc1"]]

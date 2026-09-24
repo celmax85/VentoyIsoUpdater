@@ -170,9 +170,13 @@ class VentoyIsoUpdaterApp(ctk.CTk):
         self._drives: list[VentoyDrive] = []
         self._closing = False
         self._sync_in_progress = False
+        self._refresh_in_progress = False
 
         self._build_ui()
-        self._refresh_drives()
+        # Deferred until mainloop() runs: _refresh_drives hands its result
+        # back from a worker thread via self.after(), which Tk silently
+        # drops if the thread finishes before the event loop has started
+        self.after(0, self._refresh_drives)
         logger.info(t('VentoyIsoUpdater démarré'))
 
     def _on_close(self):
@@ -340,8 +344,27 @@ class VentoyIsoUpdaterApp(ctk.CTk):
     # ─────────────────────────── DRIVES ─────────────────────────────────────
 
     def _refresh_drives(self):
+        # Detection shells out to lsblk/findmnt/udisksctl (with timeouts of
+        # up to 15s each when mounting a freshly installed drive), so it
+        # runs off the Tk thread to keep the window responsive.
+        if self._refresh_in_progress:
+            return
+        self._refresh_in_progress = True
         self._set_status(t('Recherche des clés Ventoy...'))
-        drives = find_ventoy_drives()
+
+        def run():
+            try:
+                drives = find_ventoy_drives()
+            except Exception as e:
+                logger.error("Drive detection failed: %s", e, exc_info=True)
+                drives = []
+            if not self._closing:
+                self.after(0, lambda d=drives: self._apply_drives(d))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _apply_drives(self, drives: list[VentoyDrive]):
+        self._refresh_in_progress = False
         if not drives:
             self.drive_combo.configure(values=[t('Aucune clé Ventoy détectée')])
             self.drive_combo.set(t('Aucune clé Ventoy détectée'))
