@@ -17,6 +17,8 @@ import tempfile
 import requests
 from typing import Optional, Callable
 
+from core.logger import logger
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Structures
@@ -192,10 +194,31 @@ def get_ventoy_cache_dir() -> str:
     return _VENTOY_CACHE_DIR
 
 
+def _archive_name(version: str) -> str:
+    """Name of the official Ventoy release archive for this OS."""
+    if platform.system() == "Linux":
+        return f"ventoy-{version}-linux.tar.gz"
+    return f"ventoy-{version}-windows.zip"
+
+
+def _cached_archive_for(extracted_dir: str) -> Optional[tuple[str, str]]:
+    """Returns (version, archive_path) for an extracted "ventoy-<version>"
+    folder in the cache dir, or None if its release archive isn't cached
+    next to it (e.g. a cache left by an older build that deleted it)."""
+    m = re.fullmatch(r"ventoy-([\d.]+)", os.path.basename(os.path.normpath(extracted_dir)))
+    if not m:
+        return None
+    version = m.group(1)
+    archive_path = os.path.join(_VENTOY_CACHE_DIR, _archive_name(version))
+    return (version, archive_path) if os.path.isfile(archive_path) else None
+
+
 def find_cached_ventoy() -> Optional[str]:
     """Returns the install script from a previously downloaded release
     sitting in the persistent cache dir (most recently extracted first), or
-    None if nothing has been downloaded yet."""
+    None if nothing has been downloaded yet. Only releases whose archive is
+    still cached count: the script itself is never executed from there,
+    see prepare_verified_ventoy()."""
     if not os.path.isdir(_VENTOY_CACHE_DIR):
         return None
     subdirs = [
@@ -204,10 +227,62 @@ def find_cached_ventoy() -> Optional[str]:
         if os.path.isdir(os.path.join(_VENTOY_CACHE_DIR, name))
     ]
     for directory in sorted(subdirs, key=os.path.getmtime, reverse=True):
+        if _cached_archive_for(directory) is None:
+            continue
         script = find_ventoy_in_dir(directory)
         if script:
             return script
     return None
+
+
+def prepare_verified_ventoy(script: str) -> Optional[tuple[str, Optional[str]]]:
+    """
+    Returns the install script to actually run as root for `script`.
+
+    A script outside the cache dir (a system install under /usr, /opt...)
+    is returned unchanged. A cached one is not trusted as-is: the cache
+    lives in the user's home, writable by any process running as that
+    user, and the script is about to be executed via pkexec. Its release
+    archive is re-checked against the official SHA256 published by the
+    Ventoy project, then extracted into a fresh private temp dir, and the
+    script from that fresh copy is returned.
+
+    Returns (script_to_run, temp_dir_to_remove_afterwards_or_None), or None
+    if the archive is missing, the checksum can't be fetched (offline) or
+    doesn't match, or extraction fails — fail-closed, like
+    download_ventoy().
+    """
+    cache_root = os.path.realpath(_VENTOY_CACHE_DIR)
+    script_real = os.path.realpath(script)
+    if not script_real.startswith(cache_root + os.sep):
+        return script, None
+
+    rel_parts = os.path.relpath(script_real, cache_root).split(os.sep)
+    cached = _cached_archive_for(os.path.join(cache_root, rel_parts[0]))
+    if cached is None:
+        return None
+    version, archive_path = cached
+
+    expected = _fetch_ventoy_checksum(version, os.path.basename(archive_path))
+    if expected is None or _sha256_file(archive_path).lower() != expected:
+        logger.warning("Cached Ventoy archive failed verification: %s", archive_path)
+        return None
+
+    tmp_dir = tempfile.mkdtemp(prefix="ventoy_")
+    try:
+        if archive_path.endswith(".tar.gz"):
+            _safe_extract_tar(archive_path, tmp_dir)
+        else:
+            _safe_extract_zip(archive_path, tmp_dir)
+    except Exception as e:
+        logger.warning("Cached Ventoy archive extraction failed: %s", e)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return None
+    fresh = find_ventoy_in_dir(tmp_dir)
+    if not fresh:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return None
+    return fresh, tmp_dir
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -318,11 +393,7 @@ def download_ventoy(
 
     Returns the path of the extracted folder, or None on error.
     """
-    system = platform.system()
-    if system == "Linux":
-        archive_name = f"ventoy-{version}-linux.tar.gz"
-    else:
-        archive_name = f"ventoy-{version}-windows.zip"
+    archive_name = _archive_name(version)
 
     url = (
         f"https://github.com/ventoy/Ventoy/releases/download/"
@@ -361,12 +432,9 @@ def download_ventoy(
         elif archive_name.endswith(".zip"):
             _safe_extract_zip(archive_path, dest_dir)
 
-        # dest_dir is now a persistent cache, not a throwaway tempdir —
-        # don't leave the ~20MB archive behind on every download
-        try:
-            os.remove(archive_path)
-        except OSError:
-            pass
+        # The archive stays in the cache on purpose: the extracted copy is
+        # never executed directly, prepare_verified_ventoy() re-checks this
+        # archive against the official checksum right before each install.
 
         # Looks for the extracted folder
         extracted = os.path.join(dest_dir, f"ventoy-{version}")

@@ -2075,7 +2075,9 @@ class VentoySetupDialog(ctk.CTkToplevel):
         self._append_log(t('Démarrage de l\'installation Ventoy...\n'))
 
         def run():
-            from core.ventoy_installer import find_ventoy_in_dir, install_ventoy
+            from core.ventoy_installer import (
+                find_ventoy_in_dir, install_ventoy, prepare_verified_ventoy
+            )
             script = find_ventoy_in_dir(self._ventoy_dir)
             if not script:
                 self.after(0, lambda: self.winfo_exists() and self._append_log(
@@ -2084,15 +2086,31 @@ class VentoySetupDialog(ctk.CTkToplevel):
                     state="normal", text=t('💾  Installer Ventoy')))
                 return
 
+            # A copy from the download cache is re-verified against the
+            # official checksum and run from a fresh temp dir, never as-is
+            prepared = prepare_verified_ventoy(script)
+            if not prepared:
+                self.after(0, lambda: self.winfo_exists() and self._append_log(
+                    t("Erreur : impossible de vérifier l'intégrité de la copie de Ventoy "
+                      "en cache (hors ligne ou archive modifiée). Retéléchargez Ventoy.\n")))
+                self.after(0, lambda: self.winfo_exists() and self.btn_install.configure(
+                    state="normal", text=t('💾  Installer Ventoy')))
+                return
+            script, tmp_dir = prepared
+
             def _on_output(txt):
                 self.after(0, lambda t=txt: self.winfo_exists() and self._append_log(t))
 
-            success, output = install_ventoy(
-                device=self._selected_device,
-                ventoy_script=script,
-                force=force,
-                on_output=_on_output,
-            )
+            try:
+                success, output = install_ventoy(
+                    device=self._selected_device,
+                    ventoy_script=script,
+                    force=force,
+                    on_output=_on_output,
+                )
+            finally:
+                if tmp_dir:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
             self.after(0, lambda s=success, o=output:
                        self.winfo_exists() and self._on_install_done(s, o))
 
