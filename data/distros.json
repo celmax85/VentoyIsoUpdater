@@ -849,7 +849,7 @@
       "checker": "windows",
       "checker_variant": "10",
       "logo_filename": "windows.png",
-      "logo_url": "https://raw.githubusercontent.com/lutgaru/linux-distro-logos/master/redmond.png",
+      "logo_url": "local:windows.png",
       "homepage": "https://www.microsoft.com/software-download/windows10ISO",
       "grub_class": "windows"
     },
@@ -865,7 +865,7 @@
       "checker": "windows",
       "checker_variant": "11",
       "logo_filename": "windows.png",
-      "logo_url": "https://raw.githubusercontent.com/lutgaru/linux-distro-logos/master/redmond.png",
+      "logo_url": "local:windows.png",
       "homepage": "https://www.microsoft.com/software-download/windows11",
       "grub_class": "windows"
     },
@@ -880,7 +880,7 @@
       "checker": "windows",
       "checker_variant": "server2025",
       "logo_filename": "windows.png",
-      "logo_url": "https://raw.githubusercontent.com/lutgaru/linux-distro-logos/master/redmond.png",
+      "logo_url": "local:windows.png",
       "homepage": "https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2025",
       "grub_class": "windows"
     },
@@ -895,7 +895,7 @@
       "checker": "windows",
       "checker_variant": "server2022",
       "logo_filename": "windows.png",
-      "logo_url": "https://raw.githubusercontent.com/lutgaru/linux-distro-logos/master/redmond.png",
+      "logo_url": "local:windows.png",
       "homepage": "https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2022",
       "grub_class": "windows"
     },
@@ -910,7 +910,7 @@
       "checker": "windows",
       "checker_variant": "server2019",
       "logo_filename": "windows.png",
-      "logo_url": "https://raw.githubusercontent.com/lutgaru/linux-distro-logos/master/redmond.png",
+      "logo_url": "local:windows.png",
       "homepage": "https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2019",
       "grub_class": "windows"
     },
