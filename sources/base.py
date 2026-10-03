@@ -36,7 +36,7 @@ class BaseChecker(ABC):
         # priority target) or "arm64" (aarch64) for the small set of
         # distros that publish a genuine, generic, Ventoy-bootable ARM64
         # ISO. Checkers that don't support "arm64" simply ignore it and
-        # always serve amd64 — see CONTRIBUTING.md for the criteria used
+        # always serve amd64 — see CONTRIBUTING.md ("ARM64 entries") for the criteria used
         # to decide whether a distro gets an arm64 entry at all (a real
         # UEFI-bootable ISO, not a device-specific SBC image).
         self.arch = arch

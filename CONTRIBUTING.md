@@ -53,6 +53,34 @@ and applies regular expressions to filenames. Before opening a PR touching
   bundle a real PNG under `assets/logos/` and reference it with the
   `local:<filename>` prefix, same as `proxmox.png` / `Pop!OS.png`.
 
+### ARM64 entries
+
+x86_64 (`amd64`) is the default and priority target. A distribution only
+gets a separate ARM64 entry when its upstream source publishes a
+**genuine, generic, UEFI-bootable ARM64 ISO** that Ventoy can boot:
+
+- **Accepted:** an official `arm64`/`aarch64` ISO meant for any ARM64
+  UEFI machine (e.g. Ubuntu Server, Debian, Rocky Linux, FreeBSD).
+- **Rejected:** device-specific single-board-computer images (Raspberry
+  Pi, Rockchip, Pinebook, per-SoC builds…): they aren't generically
+  bootable the way an ISO is. Same for an "arm64" keyword that only
+  appears elsewhere on a download page without a real ISO behind it.
+  Check the actual file on the upstream server before adding an entry.
+
+When a distribution qualifies:
+
+1. The checker must branch on `self.arch` (`"amd64"` or `"arm64"`) to
+   build the right URL, filename and checksum lookup. A checker that
+   ignores `arch` always serves the x86_64 ISO, so an ARM64 entry
+   pointing at it would silently download the wrong architecture.
+2. Add a **separate** entry in `data/distros.json`: `id` suffixed with
+   `_arm64`, `name` suffixed with ` (ARM64)`, `"checker_arch": "arm64"`,
+   and the same `category` as its x86_64 sibling.
+3. The `filename_patterns` of the two entries must not overlap: the
+   x86_64 pattern has to reject the ARM64 filename (anchor it on
+   `amd64`/`x86_64`), otherwise an ARM64 ISO on the drive is recognized
+   as the x86_64 one.
+
 ## Tests
 
 ```bash
