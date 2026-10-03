@@ -94,24 +94,40 @@ class TestSuggestDestFolder:
         assert result == os.path.join(linux_dir, "Ubuntu")
 
     def test_tools_never_land_in_linux_folder(self, tmp_dir):
-        """The "tools" category (Memtest86+, GParted...) has its own folder
-        and must not fall back into linux/ like an unknown category would."""
+        """The "tools" category (Memtest86+, GParted...) has its own folder,
+        even when a linux/ folder already exists."""
         os.makedirs(os.path.join(tmp_dir, "linux"))
         cfg = {"id": "memtest86plus", "name": "Memtest86+", "category": "tools"}
-        assert suggest_dest_folder(tmp_dir, cfg, []) == os.path.join(tmp_dir, "Memtest86+")
-        os.makedirs(os.path.join(tmp_dir, "tools"))
         assert suggest_dest_folder(tmp_dir, cfg, []) == os.path.join(tmp_dir, "tools", "Memtest86+")
 
-    def test_fallback_to_root(self, tmp_dir):
+    def test_category_folder_created_on_empty_drive(self, tmp_dir):
+        """A fresh drive gets a <category>/<distro> layout, not a flat
+        folder per distro at the root."""
         result = suggest_dest_folder(tmp_dir, {"id": "ubuntu", "name": "Ubuntu", "category": "linux"}, [])
-        # No linux folder exists → fallback to root/Ubuntu
-        assert result == os.path.join(tmp_dir, "Ubuntu")
+        assert result == os.path.join(tmp_dir, "linux", "Ubuntu")
+
+    def test_each_category_gets_its_own_folder(self, tmp_dir):
+        """Once linux/ exists, a security distro still goes to security/,
+        not into linux/."""
+        os.makedirs(os.path.join(tmp_dir, "linux"))
+        result = suggest_dest_folder(tmp_dir, {"id": "kali", "name": "Kali Linux", "category": "security"}, [])
+        assert result == os.path.join(tmp_dir, "security", "Kali Linux")
+
+    def test_existing_category_spelling_is_reused(self, tmp_dir):
+        os.makedirs(os.path.join(tmp_dir, "BSD"))
+        result = suggest_dest_folder(tmp_dir, {"id": "freebsd", "name": "FreeBSD", "category": "bsd"}, [])
+        assert result == os.path.join(tmp_dir, "BSD", "FreeBSD")
+
+    def test_unsafe_characters_in_distro_name(self, tmp_dir):
+        """A "/" in a display name must not create a nested folder."""
+        result = suggest_dest_folder(tmp_dir, {"id": "popos", "name": "Pop!_OS (Intel/AMD)", "category": "linux"}, [])
+        assert result == os.path.join(tmp_dir, "linux", "Pop!_OS (Intel-AMD)")
 
     def test_ignores_root_iso_folder(self, tmp_dir):
         """ISO at root / should not be used as dest folder."""
         entry = FakeIsoEntry("ubuntu", "/")
         result = suggest_dest_folder(tmp_dir, {"id": "ubuntu", "name": "Ubuntu", "category": "linux"}, [entry])
-        assert result == os.path.join(tmp_dir, "Ubuntu")
+        assert result == os.path.join(tmp_dir, "linux", "Ubuntu")
 
     def test_windows_category(self, tmp_dir):
         win_dir = os.path.join(tmp_dir, "windows")

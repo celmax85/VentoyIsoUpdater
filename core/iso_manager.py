@@ -4,6 +4,7 @@ ISOs are never automatically replaced — several versions can coexist.
 """
 
 import os
+import re
 import shutil
 from typing import Optional
 
@@ -47,31 +48,45 @@ def get_download_path(dest_folder: str, filename: str) -> str:
     raise OSError(f"Could not find a free name for {filename} in {dest_folder}")
 
 
-# Category -> candidate folder name mapping on the drive
+# Category -> candidate folder names on the drive. The first one is the
+# folder created when none of them exists yet; the others are accepted
+# spellings of an existing folder, reused as-is.
 _CATEGORY_FOLDERS = {
     "linux":    ["linux", "Linux"],
-    "gaming":   ["gaming", "Gaming", "linux", "Linux"],
-    "server":   ["server", "Server", "linux", "Linux"],
-    "security": ["security", "Security", "linux", "Linux"],
-    "bsd":      ["bsd", "BSD", "linux", "Linux"],
+    "gaming":   ["gaming", "Gaming"],
+    "server":   ["server", "Server"],
+    "security": ["security", "Security"],
+    "bsd":      ["bsd", "BSD"],
     "windows":  ["windows", "Windows"],
-    # Boot/repair utilities (Memtest86+, GParted, Clonezilla...): not
-    # Linux distros, so no fallback into a linux/ folder
+    # Boot/repair utilities (Memtest86+, GParted, Clonezilla...)
     "tools":    ["tools", "Tools"],
 }
+
+# Characters exFAT/FAT32 (Ventoy's data partition) and Windows refuse in a
+# file name; "/" would also silently create a nested folder
+_UNSAFE_FOLDER_CHARS = re.compile(r'[\\/:*?"<>|]')
+
+
+def _safe_folder_name(name: str) -> str:
+    """Turns a distro display name into a single, portable folder name
+    (e.g. "Pop!_OS (Intel/AMD)" -> "Pop!_OS (Intel-AMD)")."""
+    cleaned = _UNSAFE_FOLDER_CHARS.sub("-", name).strip(" .")
+    return cleaned or "ISO"
 
 
 def suggest_dest_folder(mount_point: str, distro_cfg: dict, iso_entries: list) -> str:
     """
-    Returns the suggested destination folder for downloading a new ISO.
+    Returns the suggested destination folder for downloading a new ISO,
+    so the drive stays organized as <category>/<distro>/.
 
     Priority:
     1. A folder already used by ISOs of this distro on the drive
-    2. The existing category folder + a subfolder named after the distro
-    3. A subfolder named after the distro at the root
+    2. The category folder (an existing one in any accepted spelling, or
+       the default one, created on download) + a subfolder named after
+       the distro
     """
     distro_id = distro_cfg.get("id", "")
-    distro_name = distro_cfg.get("name", distro_id)
+    distro_name = _safe_folder_name(distro_cfg.get("name", distro_id))
     category = distro_cfg.get("category", "linux")
 
     # 1. Look for an existing folder for this distro among the ISOs already present
@@ -81,14 +96,14 @@ def suggest_dest_folder(mount_point: str, distro_cfg: dict, iso_entries: list) -
             if os.path.isdir(candidate):
                 return candidate
 
-    # 2. Look for an existing category folder, create a distro subfolder inside it
-    for folder_name in _CATEGORY_FOLDERS.get(category, ["linux"]):
-        cat_dir = os.path.join(mount_point, folder_name)
-        if os.path.isdir(cat_dir):
-            return os.path.join(cat_dir, distro_name)
-
-    # 3. Fallback: subfolder at the root of the drive
-    return os.path.join(mount_point, distro_name)
+    # 2. Category folder: reuse an existing one, otherwise the default name
+    # (the download step creates it)
+    candidates = _CATEGORY_FOLDERS.get(category, [_safe_folder_name(category).lower()])
+    cat_folder = next(
+        (name for name in candidates if os.path.isdir(os.path.join(mount_point, name))),
+        candidates[0],
+    )
+    return os.path.join(mount_point, cat_folder, distro_name)
 
 
 def delete_iso(path: str) -> bool:
