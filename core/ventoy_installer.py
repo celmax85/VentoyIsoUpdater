@@ -517,6 +517,15 @@ def _unmount_device_linux(device: str) -> list[str]:
     return _mounted_partitions_linux(device)
 
 
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _strip_ansi(text: str) -> str:
+    """Ventoy2Disk.sh colors its messages with ANSI escape codes, which a
+    plain Tk label shows as raw "[33m...[0m" garbage."""
+    return _ANSI_ESCAPE.sub("", text)
+
+
 def install_ventoy(
     device: str,
     ventoy_script: str,
@@ -586,7 +595,7 @@ def install_ventoy(
             result = subprocess.run(
                 cmd, input="y\ny\n", capture_output=True, text=True, timeout=180
             )
-            output = result.stdout + result.stderr
+            output = _strip_ansi(result.stdout + result.stderr)
             if on_output:
                 on_output(output)
             return result.returncode == 0, output
@@ -608,7 +617,7 @@ def install_ventoy(
                 [ventoy_script, "-i", device],
                 capture_output=True, text=True, timeout=120
             )
-            return result.returncode == 0, result.stdout + result.stderr
+            return result.returncode == 0, _strip_ansi(result.stdout + result.stderr)
         except Exception as e:
             return False, str(e)
 

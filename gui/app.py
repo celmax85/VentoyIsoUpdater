@@ -2098,15 +2098,14 @@ class VentoySetupDialog(ctk.CTkToplevel):
                 return
             script, tmp_dir = prepared
 
-            def _on_output(txt):
-                self.after(0, lambda t=txt: self.winfo_exists() and self._append_log(t))
-
+            # No on_output callback: install_ventoy() only reports the
+            # output once the script has finished, and _on_install_done()
+            # already appends it — passing both logged it twice
             try:
                 success, output = install_ventoy(
                     device=self._selected_device,
                     ventoy_script=script,
                     force=force,
-                    on_output=_on_output,
                 )
             finally:
                 if tmp_dir:

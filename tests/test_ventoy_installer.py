@@ -109,3 +109,17 @@ class TestInstallMessagesFollowUiLanguage:
             i18n.set_language("fr")
         assert not ok
         assert msg.startswith("Could not unmount /dev/sdb1 (busy).")
+
+
+def test_ansi_color_codes_are_stripped_from_install_output():
+    from unittest.mock import MagicMock
+    colored = "\x1b[33mAttention:\x1b[0m\n\x1b[32mInstall Ventoy to /dev/sdb successfully finished.\x1b[0m\n"
+    with patch.object(vi.platform, "system", return_value="Linux"), \
+         patch.object(vi.os, "chmod"), \
+         patch.object(vi, "_unmount_device_linux", return_value=[]), \
+         patch.object(vi.shutil, "which", return_value="/usr/bin/pkexec"), \
+         patch.object(vi.subprocess, "run",
+                      return_value=MagicMock(returncode=0, stdout=colored, stderr="")):
+        ok, out = vi.install_ventoy("/dev/sdb", "/x/Ventoy2Disk.sh")
+    assert ok
+    assert out == "Attention:\nInstall Ventoy to /dev/sdb successfully finished.\n"
