@@ -4,9 +4,16 @@
 
 ## Adding a distribution
 
-See `CLAUDE.md` for the general architecture. In short: one
-`sources/<distro>.py` file (subclassing `BaseChecker`) plus one entry in
-`data/distros.json`.
+See the [project structure](README.md#project-structure) in the README for
+the general layout. Adding a distribution takes three changes:
+
+1. A `sources/<distro>.py` file with a checker subclassing `BaseChecker`
+   (`sources/base.py`).
+2. Its import **and** its entry in the checker registry, in
+   `core/version_checker.py::_load_checkers()` — easy to miss: without it,
+   the distro is recognized on the drive but never checked for updates.
+3. One or more entries in `data/distros.json` (one per edition or
+   architecture).
 
 `sources/` is the project's largest surface exposed to external
 contributions: it's code that makes network requests to third-party sites
