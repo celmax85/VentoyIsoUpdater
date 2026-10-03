@@ -5,7 +5,7 @@
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
-## [1.2.0] — 2026-09-24
+## [1.2.0] — 2026-10-03
 
 ### Corrigé
 - **Journal d'installation de Ventoy rempli de `[33m…[0m`, et affiché deux fois** : `Ventoy2Disk.sh` colore sa sortie avec des codes ANSI, que le journal de l'assistant affichait tels quels, et la sortie était ajoutée une fois par un callback puis une seconde fois à la fin. Les codes sont maintenant retirés et la sortie n'apparaît qu'une fois.

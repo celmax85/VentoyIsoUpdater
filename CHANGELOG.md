@@ -5,7 +5,7 @@
 All notable changes to this project are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [1.2.0] — 2026-09-24
+## [1.2.0] — 2026-10-03
 
 ### Fixed
 - **Ventoy install log full of `[33m…[0m` garbage, and shown twice**: `Ventoy2Disk.sh` colors its output with ANSI escape codes, which the wizard's log displayed raw, and the output was appended both by a progress callback and again at the end. Codes are now stripped and the output appears once.
