@@ -2116,7 +2116,9 @@ class VentoySetupDialog(ctk.CTkToplevel):
         threading.Thread(target=run, daemon=True).start()
 
     def _on_install_done(self, success: bool, output: str):
-        self._append_log(output)
+        # Keeps the next run's "Démarrage..." line from being glued to the
+        # end of a message that has no trailing newline
+        self._append_log(output if output.endswith("\n") else output + "\n")
         self.btn_install.configure(state="normal", text=t('💾  Installer Ventoy'))
         if success:
             show_info(
