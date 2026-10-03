@@ -55,6 +55,9 @@ _CATEGORY_FOLDERS = {
     "security": ["security", "Security", "linux", "Linux"],
     "bsd":      ["bsd", "BSD", "linux", "Linux"],
     "windows":  ["windows", "Windows"],
+    # Boot/repair utilities (Memtest86+, GParted, Clonezilla...): not
+    # Linux distros, so no fallback into a linux/ folder
+    "tools":    ["tools", "Tools"],
 }
 
 

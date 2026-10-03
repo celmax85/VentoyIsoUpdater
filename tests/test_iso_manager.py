@@ -93,6 +93,15 @@ class TestSuggestDestFolder:
         result = suggest_dest_folder(tmp_dir, {"id": "ubuntu", "name": "Ubuntu", "category": "linux"}, [])
         assert result == os.path.join(linux_dir, "Ubuntu")
 
+    def test_tools_never_land_in_linux_folder(self, tmp_dir):
+        """The "tools" category (Memtest86+, GParted...) has its own folder
+        and must not fall back into linux/ like an unknown category would."""
+        os.makedirs(os.path.join(tmp_dir, "linux"))
+        cfg = {"id": "memtest86plus", "name": "Memtest86+", "category": "tools"}
+        assert suggest_dest_folder(tmp_dir, cfg, []) == os.path.join(tmp_dir, "Memtest86+")
+        os.makedirs(os.path.join(tmp_dir, "tools"))
+        assert suggest_dest_folder(tmp_dir, cfg, []) == os.path.join(tmp_dir, "tools", "Memtest86+")
+
     def test_fallback_to_root(self, tmp_dir):
         result = suggest_dest_folder(tmp_dir, {"id": "ubuntu", "name": "Ubuntu", "category": "linux"}, [])
         # No linux folder exists → fallback to root/Ubuntu
