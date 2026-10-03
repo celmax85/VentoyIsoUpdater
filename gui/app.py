@@ -369,6 +369,19 @@ class VentoyIsoUpdaterApp(ctk.CTk):
             self.drive_combo.configure(values=[t('Aucune clé Ventoy détectée')])
             self.drive_combo.set(t('Aucune clé Ventoy détectée'))
             self._set_status(t('Aucune clé Ventoy trouvée.'))
+            # Forget the previous drive too: it would otherwise stay
+            # "selected" (info panel, ISO table, actions) after being
+            # unplugged or wiped by a Ventoy install
+            self._drives = []
+            self.current_drive = None
+            self.iso_entries = []
+            self.check_results.clear()
+            for key, text in (("label", t('Label : —')), ("ver", t('Ventoy : —')),
+                              ("space", t('Libre : —')), ("isos", t('ISO : —')),
+                              ("theme", t('Thème : —'))):
+                self.lbl_info[key].configure(text=text)
+            self.btn_check_all.configure(state="disabled")
+            self._render_table()
             return
         self._drives = drives
         labels = [f"{d.label}  ({d.mount_point})" for d in drives]
@@ -943,7 +956,10 @@ class VentoyIsoUpdaterApp(ctk.CTk):
         )
 
     def _open_ventoy_setup(self):
-        VentoySetupDialog(self, on_done=self._refresh_drives)
+        # Ventoy2Disk.sh makes the kernel re-read the partition table
+        # several times right up to the end of the install: rescanning
+        # immediately can miss the new partitions, so give it a moment
+        VentoySetupDialog(self, on_done=lambda: self.after(3000, self._refresh_drives))
 
     def _open_theme_manager(self):
         if not self.current_drive:

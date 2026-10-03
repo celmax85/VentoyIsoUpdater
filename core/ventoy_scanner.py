@@ -283,6 +283,15 @@ def _auto_mount_unmounted_ventoy_linux() -> None:
     """
     if not shutil.which("udisksctl"):
         return
+    # Lets udev finish processing pending block events (e.g. the partition
+    # table a Ventoy install just rewrote) so lsblk reports the new
+    # partitions and their labels, not a half-updated view
+    if shutil.which("udevadm"):
+        try:
+            subprocess.run(["udevadm", "settle", "--timeout=5"],
+                           capture_output=True, timeout=10)
+        except Exception:
+            pass
     try:
         result = subprocess.run(
             ["lsblk", "-J", "-b", "-o", "NAME,TYPE,HOTPLUG,MOUNTPOINT,FSTYPE,LABEL"],
