@@ -98,11 +98,16 @@ def suggest_dest_folder(mount_point: str, distro_cfg: dict, iso_entries: list) -
 
     # 2. Category folder: reuse an existing one, otherwise the default name
     # (the download step creates it)
+    # Compared against the real on-disk names, not os.path.isdir(): Windows
+    # filesystems are case-insensitive, so isdir("bsd") is true for "BSD" —
+    # and the menu_class "parent" rule written from this path must match
+    # Ventoy's case-sensitive comparison
     candidates = _CATEGORY_FOLDERS.get(category, [_safe_folder_name(category).lower()])
-    cat_folder = next(
-        (name for name in candidates if os.path.isdir(os.path.join(mount_point, name))),
-        candidates[0],
-    )
+    try:
+        existing = {e.name for e in os.scandir(mount_point) if e.is_dir()}
+    except OSError:
+        existing = set()
+    cat_folder = next((name for name in candidates if name in existing), candidates[0])
     return os.path.join(mount_point, cat_folder, distro_name)
 
 

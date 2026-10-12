@@ -120,6 +120,8 @@ def _get_vtoyefi_version(mount_point: str) -> Optional[str]:
     Mounts the partition first if it isn't already, then unmounts it right
     back — it's never meant to be presented as a manageable drive.
     """
+    if platform.system() != "Linux":
+        return None
     part = _find_vtoyefi_partition(mount_point)
     if not part or not shutil.which("udisksctl"):
         return None
@@ -413,12 +415,52 @@ def _find_linux() -> list[VentoyDrive]:
     return drives
 
 
+def run_powershell_json(script: str):
+    """Runs a PowerShell snippet (Windows only) and returns its output
+    parsed as JSON (always a list), or None on any failure. Uses the
+    built-in Windows PowerShell 5.1 — `wmic` is gone on recent Windows 11."""
+    import base64
+    # -EncodedCommand sidesteps Windows command-line quoting entirely
+    encoded = base64.b64encode(
+        f"ConvertTo-Json -Compress -InputObject @({script})".encode("utf-16-le")
+    ).decode()
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive",
+             "-EncodedCommand", encoded],
+            capture_output=True, text=True, timeout=20,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        return json.loads(result.stdout)
+    except Exception:
+        return None
+
+
+def _vtoyefi_letters_windows() -> set[str]:
+    """Drive letters of every partition on a disk that also has a "VTOYEFI"
+    partition — the Windows equivalent of _has_vtoyefi_sibling(), needed to
+    spot a freshly installed Ventoy drive whose data partition is still
+    empty (VTOYEFI itself never gets a drive letter)."""
+    letters = run_powershell_json(
+        "Get-Disk | ForEach-Object { "
+        "$p = Get-Partition -DiskNumber $_.Number -ErrorAction SilentlyContinue; "
+        "if (($p | Get-Volume -ErrorAction SilentlyContinue).FileSystemLabel -contains 'VTOYEFI') "
+        "{ $p | Where-Object { $_.DriveLetter -match '[A-Z]' } | ForEach-Object { [string]$_.DriveLetter } } }"
+    )
+    return {str(x).upper() for x in letters or []}
+
+
 def _find_windows() -> list[VentoyDrive]:
     drives = []
     import string
+    vtoyefi_letters = _vtoyefi_letters_windows()
     for letter in string.ascii_uppercase:
         mp = f"{letter}:\\"
-        if os.path.isdir(mp) and _is_ventoy_mount(mp):
+        if os.path.isdir(mp) and (
+            os.path.isdir(os.path.join(mp, "ventoy")) or letter in vtoyefi_letters
+        ):
             try:
                 import ctypes
                 vol_label = ctypes.create_unicode_buffer(261)

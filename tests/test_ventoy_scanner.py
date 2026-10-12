@@ -179,7 +179,10 @@ class TestScanIsosSymlinks:
         with open(target, "w") as f:
             f.write("secret")
         symlink = os.path.join(linux_dir, "evil.iso")
-        os.symlink(target, symlink)
+        try:
+            os.symlink(target, symlink)
+        except OSError:
+            pytest.skip("symlinks need admin/Developer Mode on Windows")
 
         drive = VentoyDrive(mount_point=tmp_dir, label="TEST")
         entries = scan_isos(drive, {})

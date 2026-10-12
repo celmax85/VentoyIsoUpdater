@@ -5,6 +5,17 @@
 All notable changes to this project are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+- **Distro icons never shown in the Ventoy boot menu (every ISO got the generic "disk + ISO" icon)**: the app wrote its `menu_class` rules as `{"dir": folder, "class": ...}`, but Ventoy's own GRUB module (`ventoy_plugin_get_menu_class()` in `ventoy_plugin.c`) only ever matches ISO files against `key` (substring of the filename) and `parent` (exact containing folder) rules — a `dir` rule only styles the folder entry itself in TreeView mode. No ISO ever matched, so all of them fell back to Ventoy's default `vtoyiso` class. Rules are now written as `{"parent": folder, ...}`; ISOs sitting at the drive root are covered too (`"parent": "/"`, previously skipped), a folder gets its rule even when its class is already used by another folder, and the "⚠ No icon" warning now applies Ventoy's exact matching instead of a prefix match that reported subfolders as covered when they weren't. Existing drives are fixed by clicking "Download missing logos" once.
+- **Wrong category folder casing picked on Windows**: the existing-category lookup used `os.path.isdir()`, which is case-insensitive on Windows filesystems — so with a `BSD/` folder on the drive it picked the first accepted spelling, `bsd`, and the `menu_class` rule written from that path (`/bsd/FreeBSD`) didn't match Ventoy's case-sensitive comparison against the real path. It now compares against the actual on-disk folder names.
+- **"Create a Ventoy drive" never listed any USB drive on Windows**: detection relied on `wmic`, which no longer exists on recent Windows 11 builds (and only ever matched "Removable Media", missing many USB disks). Replaced with PowerShell's `Get-Disk` (USB bus type), which also reports each disk's drive letters and excludes drives that already have Ventoy (a `VTOYEFI` partition or a `ventoy/` folder).
+- **Ventoy installation on Windows never worked**: the app ran `Ventoy2Disk.exe -i <device>`, a syntax that tool doesn't have, and required restarting the whole app as administrator. It now uses Ventoy2Disk.exe's real CLI mode (`VTOYCLI /I /PhyDrive:N`, `/U` to update — note the official docs say `/PhyDisk:` but the parser in `ventoy_cli.c` only accepts `/PhyDrive:`), raises a UAC prompt for just that process (the Windows counterpart of `pkexec`), and reads the result from the `cli_done.txt`/`cli_log.txt` files the tool writes instead of a stdout/exit code it doesn't use. A write failure with `ErrCode:5` now explains its most common cause: Windows Defender's Controlled Folder Access blocking raw disk writes, with the exact path to allow.
+- **Downloaded Ventoy release not found on Windows**: the extracted-archive lookup only searched for `Ventoy2Disk.exe` at the top level, and only for the Linux `.sh` script one level down — where the Windows zip actually puts it. Also skips the Linux-only system install paths on Windows.
+- **A freshly installed (still empty) Ventoy drive not detected on Windows**: the `VTOYEFI` sibling-partition check relied on `findmnt`/`lsblk`. Now done with a single PowerShell query on Windows.
+- **Symlink test failing on Windows** without admin rights/Developer Mode: it's now skipped there instead.
+
 ## [1.2.0] — 2026-10-03
 
 ### Fixed

@@ -103,22 +103,30 @@ def _find_usb_linux(exclude_ventoy: bool) -> list[UsbDrive]:
 
 
 def _find_usb_windows(exclude_ventoy: bool) -> list[UsbDrive]:
+    from core.ventoy_scanner import run_powershell_json
+    disks = run_powershell_json(
+        "Get-Disk | Where-Object BusType -eq 'USB' | ForEach-Object { "
+        "$p = @(Get-Partition -DiskNumber $_.Number -ErrorAction SilentlyContinue); "
+        "[pscustomobject]@{ Number = $_.Number; Size = $_.Size; Model = $_.FriendlyName; "
+        "Letters = @($p | Where-Object { $_.DriveLetter -match '[A-Z]' } | ForEach-Object { [string]$_.DriveLetter + ':\\' }); "
+        "Labels = @($p | Get-Volume -ErrorAction SilentlyContinue | ForEach-Object { $_.FileSystemLabel }) } }"
+    )
     drives = []
-    try:
-        result = subprocess.run(
-            ["wmic", "diskdrive", "where", "MediaType='Removable Media'",
-             "get", "DeviceID,Size,MediaType,Model", "/format:csv"],
-            capture_output=True, text=True, timeout=8
-        )
-        for line in result.stdout.splitlines():
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) < 4 or not parts[1].startswith("\\\\.\\"):
-                continue
-            device = parts[1]
-            size = int(parts[3]) if parts[3].isdigit() else 0
-            drives.append(UsbDrive(device=device, name=device, size_bytes=size))
-    except Exception:
-        pass
+    for disk in disks or []:
+        labels = [l for l in disk.get("Labels") or [] if l]
+        letters = disk.get("Letters") or []
+        if exclude_ventoy and (
+            "VTOYEFI" in (l.upper() for l in labels)
+            or any(os.path.isdir(os.path.join(mp, "ventoy")) for mp in letters)
+        ):
+            continue
+        drives.append(UsbDrive(
+            device=rf"\\.\PhysicalDrive{disk['Number']}",
+            name=str(disk["Number"]),
+            size_bytes=int(disk.get("Size") or 0),
+            label=disk.get("Model") or "",
+            mountpoints=letters,
+        ))
     return drives
 
 
@@ -152,6 +160,10 @@ def find_ventoy_binary() -> Optional[str]:
     malicious executable placed earlier in $PATH must not be able to take
     priority over a known installation.
     """
+    if platform.system() != "Linux":
+        # No standard install location on Windows: the release is
+        # downloaded into the cache dir (find_cached_ventoy)
+        return None
     for path in _LINUX_PATHS:
         if os.path.isfile(path):
             return path
@@ -167,14 +179,16 @@ def find_ventoy_in_dir(directory: str) -> Optional[str]:
     # The official Ventoy Linux archive ships "Ventoy2Disk.sh" (mixed case);
     # the lowercase variant is also accepted in case a third-party package
     # renamed it — matching matters on case-sensitive filesystems (ext4, etc.)
-    for fname in ["Ventoy2Disk.sh", "ventoy2disk.sh", "Ventoy2Disk.exe"]:
+    names = (["Ventoy2Disk.exe"] if platform.system() == "Windows"
+             else ["Ventoy2Disk.sh", "ventoy2disk.sh"])
+    for fname in names:
         candidate = os.path.join(directory, fname)
         if os.path.isfile(candidate):
             return candidate
     # Searches one level deeper, recursively
     for entry in os.scandir(directory):
         if entry.is_dir():
-            for fname in ["Ventoy2Disk.sh", "ventoy2disk.sh"]:
+            for fname in names:
                 candidate = os.path.join(entry.path, fname)
                 if os.path.isfile(candidate):
                     return candidate
@@ -605,20 +619,69 @@ def install_ventoy(
             return False, str(e)
 
     elif system == "Windows":
-        # On Windows, Ventoy2Disk.exe must be launched with elevation
+        # Ventoy2Disk.exe's CLI mode (https://www.ventoy.net/en/doc_windows_cli.html
+        # says "/PhyDisk:", but ventoy_cli.c actually parses "/PhyDrive:"):
+        # it reports through cli_log.txt / cli_done.txt ("0" = success)
+        # next to the exe rather than stdout/exit code. It also needs admin
+        # rights: Start-Process -Verb RunAs raises the UAC prompt, the
+        # Windows counterpart of pkexec.
+        m = re.search(r"PhysicalDrive(\d+)$", device)
+        if not m:
+            return False, f"{t('Disque invalide : ')}{device}"
+        exe_dir = os.path.dirname(os.path.abspath(ventoy_script))
+        done_file = os.path.join(exe_dir, "cli_done.txt")
+        log_file = os.path.join(exe_dir, "cli_log.txt")
+        for stale in (done_file, log_file):
+            try:
+                os.remove(stale)
+            except OSError:
+                pass
+
+        def ps_quote(s: str) -> str:
+            return "'" + s.replace("'", "''") + "'"
+
+        cmd_flag = "/U" if overwrite and not force else "/I"
+        script = (
+            f"$p = Start-Process -FilePath {ps_quote(ventoy_script)} "
+            f"-ArgumentList 'VTOYCLI','{cmd_flag}','/PhyDrive:{m.group(1)}' "
+            f"-WorkingDirectory {ps_quote(exe_dir)} -Verb RunAs -Wait -PassThru; "
+            f"exit $p.ExitCode"
+        )
+        import base64
         try:
-            import ctypes
-            if not ctypes.windll.shell32.IsUserAnAdmin():
-                return False, t(
-                    "Droits administrateur requis.\n"
-                    "Relancez VentoyIsoUpdater en tant qu'administrateur."
-                )
             result = subprocess.run(
-                [ventoy_script, "-i", device],
-                capture_output=True, text=True, timeout=120
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand",
+                 base64.b64encode(script.encode("utf-16-le")).decode()],
+                capture_output=True, text=True, timeout=300,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
-            return result.returncode == 0, _strip_ansi(result.stdout + result.stderr)
+        except subprocess.TimeoutExpired:
+            return False, t("Délai d'attente dépassé.")
         except Exception as e:
             return False, str(e)
+
+        output = ""
+        try:
+            with open(log_file, encoding="utf-8", errors="replace") as f:
+                output = f.read()
+        except OSError:
+            output = result.stdout + result.stderr
+        try:
+            with open(done_file, encoding="utf-8", errors="replace") as f:
+                success = f.read().strip() == "0"
+        except OSError:
+            # No cli_done.txt: never ran (UAC prompt declined, etc.)
+            success = False
+        if not success and "ErrCode:5" in output:
+            # Access denied on raw disk writes despite admin rights: almost
+            # always Defender's Controlled Folder Access (ransomware protection)
+            output += t(
+                "\n\n⚠  Écriture sur le disque refusée par Windows (ErrCode 5).\n"
+                "Cause la plus fréquente : « Dispositif d'accès contrôlé aux dossiers » "
+                "de Windows Defender.\nSécurité Windows → Protection contre les virus → "
+                "Gérer la protection contre les ransomwares → Autoriser une application, "
+                "puis ajoutez :\n"
+            ) + f"  {ventoy_script}\n"
+        return success, output
 
     return False, t("Système non supporté.")
