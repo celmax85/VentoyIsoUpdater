@@ -31,8 +31,9 @@ def ventoy_json(tmp_dir):
     path = os.path.join(tmp_dir, "ventoy.json")
     data = {
         "menu_class": [
-            {"dir": "/linux/ubuntu", "class": "ubuntu"},
-            {"dir": "/Linux", "class": "linux"},
+            {"parent": "/linux/ubuntu", "class": "ubuntu"},
+            {"parent": "/Linux", "class": "linux"},
+            {"dir": "/Tools", "class": "tools"},  # folder entry only, ignored for ISOs
         ]
     }
     with open(path, "w") as f:
@@ -46,7 +47,7 @@ class TestLoadVentoyJson:
     def test_loads_valid(self, ventoy_json):
         data = load_ventoy_json(ventoy_json)
         assert "menu_class" in data
-        assert len(data["menu_class"]) == 2
+        assert len(data["menu_class"]) == 3
 
     def test_missing_file_returns_empty(self, tmp_dir):
         result = load_ventoy_json(os.path.join(tmp_dir, "nonexistent.json"))
@@ -103,6 +104,7 @@ class TestGetExistingMenuClasses:
         assert isinstance(result, dict)
         assert result.get("/linux/ubuntu") == "ubuntu"
         assert result.get("/Linux") == "linux"
+        assert "/Tools" not in result
 
     def test_empty_if_no_menu_class(self, tmp_dir):
         path = os.path.join(tmp_dir, "ventoy.json")
@@ -118,19 +120,32 @@ class TestAddMenuClassEntry:
         result = add_menu_class_entry(ventoy_json, "linux/debian", "debian")
         assert result is True
         data = load_ventoy_json(ventoy_json)
-        dirs = [e["dir"] for e in data["menu_class"]]
-        assert "/linux/debian" in dirs
+        assert {"parent": "/linux/debian", "class": "debian"} in data["menu_class"]
 
     def test_does_not_duplicate(self, ventoy_json):
         add_menu_class_entry(ventoy_json, "linux/ubuntu", "ubuntu")
         result = add_menu_class_entry(ventoy_json, "linux/ubuntu", "ubuntu")
         assert result is False
 
-    def test_inserts_before_generic_linux(self, ventoy_json):
-        add_menu_class_entry(ventoy_json, "specific/folder", "fedora")
-        data = load_ventoy_json(ventoy_json)
-        dirs = [e["dir"] for e in data["menu_class"]]
-        assert dirs.index("/specific/folder") < dirs.index("/Linux")
+    def test_normalizes_windows_and_root_paths(self, ventoy_json):
+        add_menu_class_entry(ventoy_json, "Linux\\Fedora", "fedora")
+        add_menu_class_entry(ventoy_json, ".", "kali")  # relpath of the drive root
+        parents = [e.get("parent") for e in load_ventoy_json(ventoy_json)["menu_class"]]
+        assert "/Linux/Fedora" in parents
+        assert "/" in parents
+
+    def test_unmatched_uses_ventoy_rules(self, ventoy_json):
+        from core.theme_manager import get_unmatched_isos
+        iso = lambda folder, name="x.iso": IsoEntry(filename=name, path="", folder=folder, size_bytes=0)
+        save_ventoy_json(ventoy_json, {"menu_class": [
+            {"parent": "/Linux", "class": "linux"},
+            {"key": "debian", "class": "debian"},
+            {"dir": "/Tools", "class": "tools"},
+        ]})
+        entries = [iso("Linux"), iso("Linux/Arch"), iso("Tools"), iso("/", "debian-13.iso")]
+        unmatched = get_unmatched_isos(entries, ventoy_json)
+        # parent doesn't cover subfolders, dir never covers ISOs
+        assert [e.folder for e in unmatched] == ["Linux/Arch", "Tools"]
 
     def test_nonexistent_file_returns_false(self, tmp_dir):
         result = add_menu_class_entry(

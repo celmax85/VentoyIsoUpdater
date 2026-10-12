@@ -19,22 +19,38 @@ if not exist "%ICON%" (
     pause & exit /b 1
 )
 
+set INSTALL_OFFERED=
+:find_iscc
 set ISCC=""
 if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" (
     set ISCC="C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 ) else if exist "C:\Program Files\Inno Setup 6\ISCC.exe" (
     set ISCC="C:\Program Files\Inno Setup 6\ISCC.exe"
+) else if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" (
+    set ISCC="%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
 ) else (
     where iscc >nul 2>&1 && set ISCC=iscc
 )
+if not %ISCC%=="" goto iscc_found
 
-if %ISCC%=="" (
-    echo ERROR: Inno Setup not found.
-    echo Download: https://jrsoftware.org/isdl.php
-    pause & exit /b 1
-)
+echo Inno Setup 6 is required to build the installer, and was not found.
+if defined INSTALL_OFFERED goto iscc_missing
+set INSTALL_OFFERED=1
+where winget >nul 2>&1 || goto iscc_missing
+choice /c YN /m "Install it now with winget"
+if errorlevel 2 goto iscc_missing
+winget install --id JRSoftware.InnoSetup -e --accept-package-agreements --accept-source-agreements
+goto find_iscc
 
-if not defined VERSION set VERSION=1.0.0
+:iscc_missing
+echo ERROR: Inno Setup not found.
+echo Download: https://jrsoftware.org/isdl.php
+pause & exit /b 1
+
+:iscc_found
+
+REM Defaults to the version in pyproject.toml (single source of truth)
+if not defined VERSION for /f "tokens=2 delims== " %%v in ('findstr /b /c:"version" pyproject.toml') do set VERSION=%%~v
 REM overridable: set VERSION=1.2.3 ^&^& package_installer_win.bat
 
 echo =^> Compiling the installer...

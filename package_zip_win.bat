@@ -5,7 +5,8 @@ REM Usage: package_zip_win.bat
 setlocal
 
 set APP_NAME=VentoyIsoUpdater
-if not defined VERSION set VERSION=1.0.0
+REM Defaults to the version in pyproject.toml (single source of truth)
+if not defined VERSION for /f "tokens=2 delims== " %%v in ('findstr /b /c:"version" pyproject.toml') do set VERSION=%%~v
 REM overridable: set VERSION=1.2.3 ^&^& package_zip_win.bat
 set BINARY=dist\windows\%APP_NAME%.exe
 set OUTPUT=dist\windows\%APP_NAME%-%VERSION%-windows-portable.zip

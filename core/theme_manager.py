@@ -131,18 +131,26 @@ def create_default_theme(mount_point: str) -> tuple[Optional[str], Optional[str]
     return ventoy_json_path, theme_dir, icons_dir
 
 
+def _normalize_folder(iso_folder: str) -> str:
+    """"linux\\ubuntu", "/linux/ubuntu/", "." -> "/linux/ubuntu", "/" (Ventoy's
+    path form: leading slash, no trailing slash, "/" for the drive root)."""
+    p = iso_folder.replace("\\", "/").strip("/")
+    return "/" + ("" if p in ("", ".") else p)
+
+
 def get_existing_menu_classes(ventoy_json_path: str) -> dict[str, str]:
     """
-    Returns a {pattern -> class} dict from ventoy.json's menu_class entries.
-    pattern is either "dir" or "parent".
+    Returns a {folder -> class} dict from ventoy.json's "parent" menu_class
+    entries — the only folder-based rule Ventoy applies to ISO files (see
+    add_menu_class_entry).
     """
     data = load_ventoy_json(ventoy_json_path)
     result = {}
     for entry in data.get("menu_class", []):
-        key = entry.get("dir") or entry.get("parent", "")
+        folder = entry.get("parent", "")
         cls = entry.get("class", "")
-        if key and cls:
-            result[key] = cls
+        if folder and cls:
+            result[folder] = cls
     return result
 
 
@@ -152,8 +160,16 @@ def add_menu_class_entry(
     grub_class: str,
 ) -> bool:
     """
-    Adds a menu_class entry to ventoy.json mapping iso_folder -> grub_class.
-    Does nothing if the entry already exists for this folder.
+    Adds a {"parent": folder, "class": grub_class} menu_class entry, giving
+    every ISO directly inside iso_folder that class's icon.
+
+    "parent", not "dir": Ventoy's GRUB module (ventoy_plugin_get_menu_class
+    in ventoy_plugin.c) only matches ISO files against "key" (substring of
+    the filename) and "parent" (exact containing folder) rules — a "dir"
+    rule only ever styles the folder entry itself in TreeView mode, so ISOs
+    covered by one still show the default vtoyiso icon.
+
+    Does nothing if this folder already has a parent rule.
     Returns True if an entry was added.
     """
     if not ventoy_json_path or not os.path.isfile(ventoy_json_path):
@@ -161,25 +177,12 @@ def add_menu_class_entry(
 
     data = load_ventoy_json(ventoy_json_path)
     menu_class = data.get("menu_class", [])
+    folder = _normalize_folder(iso_folder)
 
-    # Normalizes the path: must start with /
-    folder = "/" + iso_folder.lstrip("/\\").replace("\\", "/")
+    if any(entry.get("parent") == folder for entry in menu_class):
+        return False
 
-    # Checks whether this folder is already mapped
-    for entry in menu_class:
-        if entry.get("dir") == folder:
-            return False  # already present
-
-    # Inserts before the generic /Linux rule (if it exists)
-    new_entry = {"dir": folder, "class": grub_class}
-    insert_pos = len(menu_class)
-    for i, entry in enumerate(menu_class):
-        # The generic rule (/Linux, /) must stay last
-        d = entry.get("dir", "")
-        if d in ("/Linux", "/", "/Server") and d != folder:
-            insert_pos = i
-            break
-    menu_class.insert(insert_pos, new_entry)
+    menu_class.append({"parent": folder, "class": grub_class})
     data["menu_class"] = menu_class
     return save_ventoy_json(ventoy_json_path, data)
 
@@ -228,12 +231,10 @@ def sync_logos(
                 "name": distro_cfg["name"],
                 "folders": set(),
             }
-        # Collects the folders for the menu_class update
-        if entry.folder and entry.folder != "/":
-            needed[grub_class]["folders"].add(entry.folder)
+        # Collects the folders for the menu_class update (drive root included)
+        needed[grub_class]["folders"].add(entry.folder or "/")
 
     results: dict[str, dict] = {}
-    existing_classes = get_existing_menu_classes(ventoy_json_path) if ventoy_json_path else {}
 
     for grub_class, info in needed.items():
         logo_filename = grub_class + ".png"
@@ -264,13 +265,9 @@ def sync_logos(
 
         # Updates ventoy.json if requested and the logo succeeded
         if ventoy_json_path and success:
-            class_values = set(existing_classes.values())
-            if grub_class not in class_values:
-                # Adds one entry per ISO folder
-                for folder in info["folders"]:
-                    add_menu_class_entry(ventoy_json_path, folder, grub_class)
-                # Reloads the classes after the update
-                existing_classes = get_existing_menu_classes(ventoy_json_path)
+            # One rule per ISO folder (no-op for folders already mapped)
+            for folder in info["folders"]:
+                add_menu_class_entry(ventoy_json_path, folder, grub_class)
 
         if on_progress:
             on_progress(info["name"], success)
@@ -315,16 +312,14 @@ def get_unmatched_isos(
     """
     if not ventoy_json_path:
         return []
-    existing = get_existing_menu_classes(ventoy_json_path)
+    # Same rules Ventoy applies to ISO files: "key" = case-sensitive
+    # substring of the filename, "parent" = exact containing folder
+    rules = load_ventoy_json(ventoy_json_path).get("menu_class", [])
+    keys = [r["key"] for r in rules if r.get("key")]
+    parents = {r["parent"] for r in rules if r.get("parent")}
 
-    unmatched = []
-    for entry in iso_entries:
-        folder = "/" + entry.folder.lstrip("/\\").replace("\\", "/")
-        matched = False
-        for pattern in existing:
-            if folder == pattern or folder.startswith(pattern + "/") or folder.startswith(pattern):
-                matched = True
-                break
-        if not matched:
-            unmatched.append(entry)
-    return unmatched
+    return [
+        entry for entry in iso_entries
+        if _normalize_folder(entry.folder) not in parents
+        and not any(k in entry.filename for k in keys)
+    ]
