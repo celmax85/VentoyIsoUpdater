@@ -6,7 +6,7 @@
 set -e
 
 APP_NAME="VentoyIsoUpdater"
-VERSION="${VERSION:-1.0.0}"   # overridable: VERSION=1.2.3 ./package_appimage.sh
+VERSION="${VERSION:-$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)}"   # overridable: VERSION=1.2.3 ./package_appimage.sh
 BINARY="dist/linux/$APP_NAME"
 APPIMAGE_TOOL="tools/appimagetool-x86_64.AppImage"
 APPIMAGE_URL="https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"

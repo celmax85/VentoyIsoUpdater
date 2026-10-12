@@ -14,7 +14,7 @@ fi
 
 APP_NAME="VentoyIsoUpdater"
 PKG_NAME="ventoy-iso-updater"
-VERSION="${VERSION:-1.0.0}"   # overridable: VERSION=1.2.3 ./package_rpm.sh
+VERSION="${VERSION:-$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)}"   # overridable: VERSION=1.2.3 ./package_rpm.sh
 RELEASE="1"
 BINARY="dist/linux/$APP_NAME"
 MAINTAINER="Maxence Baffet"

@@ -7,7 +7,7 @@ set -e
 APP_NAME="VentoyIsoUpdater"
 PKG_NAME="ventoy-iso-updater"
 APP_ID="com.github.celmax85.ventoyisoupdater"
-VERSION="${VERSION:-1.0.0}"   # overridable: VERSION=1.2.3 ./package_deb.sh
+VERSION="${VERSION:-$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)}"   # overridable: VERSION=1.2.3 ./package_deb.sh
 ARCH="amd64"
 MAINTAINER="Maxence Baffet <celomaxge85@gmail.com>"
 DESCRIPTION="Desktop GUI for managing Ventoy USB drives"
