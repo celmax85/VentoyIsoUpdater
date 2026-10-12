@@ -63,6 +63,6 @@ echo.
 echo =^> Executable generated: dist\windows\VentoyIsoUpdater.exe
 echo.
 echo     Available packages:
-echo     package_zip_win.bat          -> dist\windows\*-portable.zip
-echo     package_installer_win.bat    -> dist\windows\*-setup.exe
+echo     package_zip_win.bat          -^> dist\windows\*-portable.zip
+echo     package_installer_win.bat    -^> dist\windows\*-setup.exe
 pause
