@@ -5,7 +5,7 @@
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
-## [Non publié]
+## [1.3.0] — 2026-11-21
 
 ### Corrigé
 - **Icônes des distributions jamais affichées dans le menu de démarrage Ventoy (tous les ISO avaient l'icône générique « disque + ISO »)** : l'application écrivait ses règles `menu_class` sous la forme `{"dir": dossier, "class": ...}`, mais le module GRUB de Ventoy (`ventoy_plugin_get_menu_class()` dans `ventoy_plugin.c`) ne compare les fichiers ISO qu'aux règles `key` (texte contenu dans le nom du fichier) et `parent` (dossier qui contient directement l'ISO) — une règle `dir` ne s'applique qu'à l'entrée du dossier lui-même en mode TreeView. Aucun ISO ne correspondait, d'où la classe par défaut `vtoyiso` partout. Un dossier dont toutes les images appartiennent à une seule distribution reçoit maintenant une règle `{"parent": dossier, ...}` ; un dossier qui mélange plusieurs distributions (typiquement une organisation à plat, avec toutes les ISO à la racine ou dans un seul dossier `/ISO`) reçoit à la place une règle `{"key": <nom du fichier sans extension>, ...}` par ISO, car une règle `parent` donnerait à toutes ses images l'icône de la première distribution. Les ISO à la racine de la clé sont couverts aussi (ignorés auparavant), un dossier reçoit ses règles même si sa classe sert déjà pour un autre dossier, la même logique s'applique après chaque téléchargement d'ISO, et l'avertissement « ⚠ Sans icône » applique désormais la correspondance exacte de Ventoy au lieu d'une correspondance par préfixe qui considérait à tort les sous-dossiers comme couverts. Pour une clé existante, il suffit de cliquer une fois sur « Télécharger logos manquants ».
@@ -88,7 +88,7 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 ### Interne
 - Tous les commentaires de code, docstrings et messages de log de diagnostic traduits en anglais (auparavant en français en premier). Aucun effet sur l'interface ou le comportement de l'application — le switch français/anglais visible par l'utilisateur n'est pas concerné.
 
-[Non publié]: https://github.com/celmax85/VentoyIsoUpdater/compare/v1.2.0...HEAD
+[1.3.0]: https://github.com/celmax85/VentoyIsoUpdater/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/celmax85/VentoyIsoUpdater/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/celmax85/VentoyIsoUpdater/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/celmax85/VentoyIsoUpdater/compare/v1.0.1...v1.1.0

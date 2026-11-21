@@ -5,7 +5,7 @@
 All notable changes to this project are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.3.0] — 2026-11-21
 
 ### Fixed
 - **Distro icons never shown in the Ventoy boot menu (every ISO got the generic "disk + ISO" icon)**: the app wrote its `menu_class` rules as `{"dir": folder, "class": ...}`, but Ventoy's own GRUB module (`ventoy_plugin_get_menu_class()` in `ventoy_plugin.c`) only ever matches ISO files against `key` (substring of the filename) and `parent` (exact containing folder) rules — a `dir` rule only styles the folder entry itself in TreeView mode. No ISO ever matched, so all of them fell back to Ventoy's default `vtoyiso` class. A folder whose images all belong to one distro now gets a `{"parent": folder, ...}` rule; a folder that mixes distros (typically a flat layout with every ISO at the drive root or in a single `/ISO` folder) gets one `{"key": <filename without extension>, ...}` rule per ISO instead, since a `parent` rule would give every image in it the first distro's icon. ISOs at the drive root are covered too (previously skipped), a folder gets its rules even when its class is already used by another folder, the same logic runs after each ISO download, and the "⚠ No icon" warning now applies Ventoy's exact matching instead of a prefix match that reported subfolders as covered when they weren't. Existing drives are fixed by clicking "Download missing logos" once.
@@ -88,7 +88,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Internal
 - Every code comment, docstring, and diagnostic log message translated to English (previously French-first). No effect on the app's UI or behavior — the French/English toggle for what the *user* sees is untouched.
 
-[Unreleased]: https://github.com/celmax85/VentoyIsoUpdater/compare/v1.2.0...HEAD
+[1.3.0]: https://github.com/celmax85/VentoyIsoUpdater/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/celmax85/VentoyIsoUpdater/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/celmax85/VentoyIsoUpdater/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/celmax85/VentoyIsoUpdater/compare/v1.0.1...v1.1.0
