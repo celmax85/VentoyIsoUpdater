@@ -16,7 +16,7 @@ customtkinter==5.2.2
 darkdetect==0.8.0
 pillow==13.0.0
 requests==2.34.2
-packaging==24.2
+packaging==26.3
 
 # Transitive dependencies of requests
 certifi==2026.11.20

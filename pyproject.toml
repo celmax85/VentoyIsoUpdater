@@ -13,7 +13,7 @@ dependencies = [
     "customtkinter>=5.2.0,<6.0.0",
     "Pillow>=13.0.0,<14.0.0",
     "requests>=2.33.0,<3.0.0",
-    "packaging>=23.0,<25.0",
+    "packaging>=23.0,<27.0",
 ]
 
 [project.scripts]
