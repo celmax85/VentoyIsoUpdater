@@ -19,6 +19,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Package files named `1.0.0` whatever the release**: every packaging script (zip, Inno Setup installer, deb, rpm, AppImage) defaulted to a hardcoded `1.0.0`. They now read `pyproject.toml`'s version; `VERSION` still overrides it, as in CI.
 - **`build.bat` ended with two "filename syntax is incorrect" errors**: cmd parsed the `->` in its closing echo lines as an output redirection. The `>` is now escaped.
 - **`package_installer_win.bat` didn't find a per-user Inno Setup install** (`%LOCALAPPDATA%\Programs\Inno Setup 6`, the default for recent installers and winget). When Inno Setup is missing, the script now offers to install it with winget.
+- **`.rpm` package build failing on Ubuntu 26.04** (the current GitHub `ubuntu-latest` runner, so the next release would have failed): recent rpmbuild builds a debuginfo subpackage by default and stops on "Empty %files file debugfiles.list", since a PyInstaller binary has no debug info to collect. The spec now disables the debuginfo subpackage and the post-install strip pass, which could also damage the executable.
 - **Symlink test failing on Windows** without admin rights/Developer Mode: it's now skipped there instead.
 
 ### Changed
