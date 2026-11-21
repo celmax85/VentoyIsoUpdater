@@ -62,6 +62,13 @@ tar -czf "$RPMBUILD_DIR/SOURCES/${PKG_NAME}-${VERSION}.tar.gz" \
     -C "build/rpm" "${PKG_NAME}-${VERSION}"
 
 cat > "$RPMBUILD_DIR/SPECS/$PKG_NAME.spec" << EOF
+# The payload is a prebuilt PyInstaller binary: no debuginfo subpackage
+# (recent rpmbuild builds one by default, and fails on "Empty files file
+# debugfiles.list" since there's no debug info to collect), and no brp
+# post-install scripts, whose strip pass could damage the executable
+%global debug_package %{nil}
+%global __os_install_post %{nil}
+
 Name:       $PKG_NAME
 Version:    $VERSION
 Release:    $RELEASE%{?dist}
