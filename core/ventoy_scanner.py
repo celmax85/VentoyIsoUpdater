@@ -14,6 +14,8 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
 
+from core.logger import logger
+
 
 @dataclass
 class IsoEntry:
@@ -432,9 +434,12 @@ def run_powershell_json(script: str):
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if result.returncode != 0 or not result.stdout.strip():
+            logger.debug("PowerShell query returned %s: %s",
+                         result.returncode, result.stderr.strip()[:500])
             return None
         return json.loads(result.stdout)
-    except Exception:
+    except Exception as exc:
+        logger.debug("PowerShell query failed: %s", exc)
         return None
 
 

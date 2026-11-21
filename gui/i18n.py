@@ -230,7 +230,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "✓ Terminé — Toutes les ISO reconnues sont à jour.": "✓ Done — All recognized ISOs are up to date.",
         "✓ Téléchargé : ": "✓ Downloaded: ",
         "✓ Ventoy installé avec succès !\n\nRetirez et rebranchez la clé USB puis actualisez VentoyIsoUpdater.": "✓ Ventoy installed successfully!\n\nUnplug and replug the USB drive, then refresh VentoyIsoUpdater.",
-        "✓ ventoy.json mis à jour : /": "✓ ventoy.json updated: /",
+        "✓ ventoy.json mis à jour (icônes du menu)": "✓ ventoy.json updated (menu icons)",
         "✕ Annuler": "✕ Cancel",
         "⬆  Importer PNG(s)": "⬆  Import PNG(s)",
         "⬆  Importer un PNG": "⬆  Import a PNG",

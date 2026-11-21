@@ -14,7 +14,11 @@ from core.theme_manager import (
     save_ventoy_json,
     get_existing_menu_classes,
     add_menu_class_entry,
+    add_menu_class_key,
+    apply_menu_classes,
     get_missing_logos,
+    get_unmatched_isos,
+    sync_logos,
 )
 from core.ventoy_scanner import IsoEntry
 
@@ -152,6 +156,138 @@ class TestAddMenuClassEntry:
             os.path.join(tmp_dir, "missing.json"), "linux", "ubuntu"
         )
         assert result is False
+
+
+# ── apply_menu_classes / sync_logos ───────────────────────────────────────────
+
+_DB = {"distros": [
+    {"id": "ubuntu", "name": "Ubuntu", "grub_class": "ubuntu", "logo_url": "local:ubuntu.png"},
+    {"id": "xubuntu", "name": "Xubuntu", "grub_class": "xubuntu", "logo_url": "local:xubuntu.png"},
+    {"id": "fedora", "name": "Fedora", "grub_class": "fedora", "logo_url": "local:fedora.png"},
+]}
+
+
+def _on_drive(mount, folder, filename, distro_id=None):
+    """Creates an empty ISO on a fake drive and returns its IsoEntry."""
+    d = os.path.join(mount, folder) if folder != "/" else mount
+    os.makedirs(d, exist_ok=True)
+    path = os.path.join(d, filename)
+    open(path, "w").close()
+    return IsoEntry(filename=filename, path=path, folder=folder, size_bytes=0,
+                    distro_id=distro_id)
+
+
+def _ventoy_class(menu_class, folder, filename):
+    """What Ventoy's ventoy_plugin_get_menu_class() returns for an ISO:
+    first matching key rule (strictly shorter substring), then parent."""
+    for r in menu_class:
+        if r.get("key") and len(r["key"]) < len(filename) and r["key"] in filename:
+            return r["class"]
+    folder = "/" + folder.strip("/") if folder.strip("/") else "/"
+    for r in menu_class:
+        if r.get("parent") == folder:
+            return r["class"]
+    return None
+
+
+class TestApplyMenuClasses:
+    @pytest.fixture
+    def drive(self, tmp_dir):
+        mount = os.path.join(tmp_dir, "drive")
+        os.makedirs(mount)
+        vj = os.path.join(tmp_dir, "ventoy.json")
+        save_ventoy_json(vj, {})
+        return mount, vj
+
+    def test_single_distro_folder_gets_parent_rule(self, drive):
+        mount, vj = drive
+        isos = [_on_drive(mount, "Linux/Ubuntu", "ubuntu-24.04.iso", "ubuntu"),
+                _on_drive(mount, "Linux/Ubuntu", "ubuntu-25.10.iso", "ubuntu")]
+        apply_menu_classes(vj, isos, _DB)
+        assert load_ventoy_json(vj)["menu_class"] == [
+            {"parent": "/Linux/Ubuntu", "class": "ubuntu"}]
+
+    def test_mixed_folder_gets_key_rules(self, drive):
+        mount, vj = drive
+        isos = [_on_drive(mount, "/", "ubuntu-24.04.iso", "ubuntu"),
+                _on_drive(mount, "/", "Fedora-41.iso", "fedora")]
+        apply_menu_classes(vj, isos, _DB)
+        rules = load_ventoy_json(vj)["menu_class"]
+        assert not any("parent" in r for r in rules)
+        assert _ventoy_class(rules, "/", "ubuntu-24.04.iso") == "ubuntu"
+        assert _ventoy_class(rules, "/", "Fedora-41.iso") == "fedora"
+        assert get_unmatched_isos(isos, vj) == []
+
+    def test_unrecognized_iso_makes_folder_mixed(self, drive):
+        mount, vj = drive
+        isos = [_on_drive(mount, "ISO", "ubuntu-24.04.iso", "ubuntu"),
+                _on_drive(mount, "ISO", "mystery.iso")]
+        apply_menu_classes(vj, isos, _DB)
+        rules = load_ventoy_json(vj)["menu_class"]
+        assert _ventoy_class(rules, "ISO", "mystery.iso") is None
+        assert [e.filename for e in get_unmatched_isos(isos, vj)] == ["mystery.iso"]
+
+    def test_other_image_type_makes_folder_mixed(self, drive):
+        mount, vj = drive
+        isos = [_on_drive(mount, "ISO", "ubuntu-24.04.iso", "ubuntu")]
+        open(os.path.join(mount, "ISO", "memtest.efi"), "w").close()
+        apply_menu_classes(vj, isos, _DB)
+        rules = load_ventoy_json(vj)["menu_class"]
+        assert _ventoy_class(rules, "ISO", "memtest.efi") is None
+        assert _ventoy_class(rules, "ISO", "ubuntu-24.04.iso") == "ubuntu"
+
+    def test_key_rule_overrides_stale_parent_rule(self, drive):
+        mount, vj = drive
+        save_ventoy_json(vj, {"menu_class": [{"parent": "/", "class": "ubuntu"}]})
+        isos = [_on_drive(mount, "/", "ubuntu-24.04.iso", "ubuntu"),
+                _on_drive(mount, "/", "Fedora-41.iso", "fedora")]
+        apply_menu_classes(vj, isos, _DB)
+        assert _ventoy_class(load_ventoy_json(vj)["menu_class"], "/", "Fedora-41.iso") == "fedora"
+
+    def test_longer_key_wins_over_contained_key(self, drive):
+        mount, vj = drive
+        isos = [_on_drive(mount, "/", "ubuntu-24.04.iso", "ubuntu"),
+                _on_drive(mount, "/", "xubuntu-24.04.iso", "xubuntu")]
+        apply_menu_classes(vj, isos, _DB)
+        rules = load_ventoy_json(vj)["menu_class"]
+        assert _ventoy_class(rules, "/", "xubuntu-24.04.iso") == "xubuntu"
+        assert _ventoy_class(rules, "/", "ubuntu-24.04.iso") == "ubuntu"
+
+    def test_allowed_classes_limits_rules(self, drive):
+        mount, vj = drive
+        isos = [_on_drive(mount, "/", "ubuntu-24.04.iso", "ubuntu"),
+                _on_drive(mount, "/", "Fedora-41.iso", "fedora")]
+        apply_menu_classes(vj, isos, _DB, allowed_classes={"ubuntu"})
+        assert load_ventoy_json(vj)["menu_class"] == [
+            {"key": "ubuntu-24.04", "class": "ubuntu"}]
+
+    def test_sync_logos_flat_layout(self, drive, tmp_dir):
+        mount, vj = drive
+        icons = os.path.join(tmp_dir, "icons")
+        os.makedirs(icons)
+        for c in ("ubuntu", "fedora"):
+            open(os.path.join(icons, c + ".png"), "w").close()
+        isos = [_on_drive(mount, "/", "ubuntu-24.04.iso", "ubuntu"),
+                _on_drive(mount, "/", "Fedora-41.iso", "fedora")]
+        sync_logos(icons, _DB, isos, ventoy_json_path=vj)
+        rules = load_ventoy_json(vj)["menu_class"]
+        assert _ventoy_class(rules, "/", "ubuntu-24.04.iso") == "ubuntu"
+        assert _ventoy_class(rules, "/", "Fedora-41.iso") == "fedora"
+
+
+class TestAddMenuClassKey:
+    def test_adds_and_does_not_duplicate(self, ventoy_json):
+        assert add_menu_class_key(ventoy_json, "debian-13", "debian") is True
+        assert add_menu_class_key(ventoy_json, "debian-13", "debian") is False
+
+    def test_empty_key_is_refused(self, ventoy_json):
+        assert add_menu_class_key(ventoy_json, "", "debian") is False
+
+
+def test_unmatched_requires_key_shorter_than_filename(ventoy_json):
+    save_ventoy_json(ventoy_json, {"menu_class": [{"key": "a.iso", "class": "a"}]})
+    entry = IsoEntry(filename="a.iso", path="", folder="/", size_bytes=0)
+    assert get_unmatched_isos([entry], ventoy_json) == [entry]
 
 
 # ── get_missing_logos ─────────────────────────────────────────────────────────

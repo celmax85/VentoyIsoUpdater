@@ -821,7 +821,9 @@ class VentoyIsoUpdaterApp(ctk.CTk):
 
     def _register_iso_folder(self, distro_id: str, iso_dest_path: str):
         """
-        Registers the ISO's folder in ventoy.json (menu_class).
+        Registers the ISO in ventoy.json (menu_class): a "parent" rule for
+        its folder, or a "key" rule for the ISO itself when the folder mixes
+        distros (see theme_manager.apply_menu_classes).
         Always called after any successful ISO download.
         Runs on the download thread.
         """
@@ -829,27 +831,24 @@ class VentoyIsoUpdaterApp(ctk.CTk):
         if not drive or not drive.ventoy_json_path:
             return
 
-        distro_cfg = next(
-            (d for d in self.distros_db.get("distros", []) if d["id"] == distro_id),
-            None
+        dest_dir = os.path.dirname(iso_dest_path)
+        iso_folder = os.path.relpath(dest_dir, drive.mount_point).replace("\\", "/")
+        new_entry = IsoEntry(
+            filename=os.path.basename(iso_dest_path), path=iso_dest_path,
+            folder=iso_folder, size_bytes=0, distro_id=distro_id,
         )
-        if not distro_cfg:
-            return
+        # The other ISOs already known in that folder decide whether it's mixed
+        siblings = [
+            e for e in self.iso_entries
+            if os.path.dirname(e.path) == dest_dir and e.filename != new_entry.filename
+        ]
 
-        grub_class = distro_cfg.get("grub_class")
-        if not grub_class:
-            return
-
-        iso_folder = os.path.relpath(
-            os.path.dirname(iso_dest_path), drive.mount_point
-        ).replace("\\", "/")
-
-        from core.theme_manager import add_menu_class_entry
-        added = add_menu_class_entry(drive.ventoy_json_path, iso_folder, grub_class)
-        if added:
-            self.after(0, lambda: self._set_status(
-                f"{t('✓ ventoy.json mis à jour : /')}{iso_folder} → {grub_class}"
-            ))
+        from core.theme_manager import apply_menu_classes, load_ventoy_json
+        before = load_ventoy_json(drive.ventoy_json_path).get("menu_class", [])
+        apply_menu_classes(drive.ventoy_json_path, siblings + [new_entry], self.distros_db)
+        after = load_ventoy_json(drive.ventoy_json_path).get("menu_class", [])
+        if len(after) > len(before):
+            self.after(0, lambda: self._set_status(t('✓ ventoy.json mis à jour (icônes du menu)')))
 
     def _auto_download_logo(self, distro_id: str, iso_dest_path: str):
         """
