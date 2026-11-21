@@ -42,60 +42,67 @@ ctk.set_default_color_theme("blue")
 
 
 def _wheel_units(event) -> int:
-    """Scroll "units" for one <MouseWheel> event on a CTkScrollableFrame canvas.
+    """Scroll "units" for one wheel event on a CTkScrollableFrame canvas.
 
-    Windows: delta is reliable there (±120 per notch, finer on precision
-    touchpads), and CTk sets its canvases' scroll increment to 1 pixel on
-    that platform, so keep CTk's own -delta/6 (20 px per notch) — a flat
-    ±1 unit would mean 1 pixel per notch. Elsewhere: ±1 unit per event,
-    see _patched_ctk_mouse_wheel_all.
+    - Button-4/5 (X11 with Tk 8.6): one unit per event, the direction is
+      in event.num.
+    - <MouseWheel> on Windows: delta is ±120 per notch (finer on precision
+      touchpads) and CTk sets the canvas scroll increment to 1 px there,
+      so keep CTk's own -delta/6 (20 px per notch).
+    - <MouseWheel> elsewhere (macOS, and Linux with Tk 9, which reports
+      the X11 wheel as <MouseWheel>): one unit per event, from the sign of
+      delta only. Its magnitude isn't reliable on every Linux desktop
+      (some XWayland setups report huge values, which made a single notch
+      jump to the end of the list).
     """
+    if event.num in (4, 5):
+        return -1 if event.num == 4 else 1
     if sys.platform.startswith("win"):
         return -int(event.delta / 6)
-    return -1 if event.delta > 0 else 1
+    return -1 if event.delta > 0 else 1 if event.delta < 0 else 0
 
 
 def _patched_ctk_mouse_wheel_all(self, event):
     """
-    Replaces CTkScrollableFrame's own global wheel handler.
-
-    On Linux (and macOS), customtkinter scrolls by `-event.delta` "units"
-    directly, with no scaling at all — it assumes `delta` is already a
-    small number (±1, ±2...), which holds on native X11/macOS but not on
-    every desktop: some GNOME/Wayland (via XWayland) setups report much
-    larger values, so a single wheel notch could jump straight to the
-    bottom or top of the list instead of scrolling a little. One "unit"
-    per event, regardless of delta's magnitude, is what Button-4/Button-5
-    (the X11 wheel events, unaffected by this) already do — this just
-    makes <MouseWheel> match.
+    Replaces CTkScrollableFrame's global wheel handler (customtkinter 6),
+    which every scrollable frame binds with bind_all: each frame scrolls
+    only for events over itself or its children (_check_if_valid_scroll,
+    which also leaves nested scrollable frames, sliders and text boxes to
+    their own handlers). It differs from CTk's handler in the step size
+    (see _wheel_units). Like CTk, it never scrolls a list that fits
+    entirely in view, or Tk shifts its content down and leaves an empty
+    gap at the top.
     """
-    if self.check_if_master_is_canvas(event.widget):
-        step = _wheel_units(event)
-        if self._shift_pressed:
-            if self._parent_canvas.xview() != (0.0, 1.0):
-                self._parent_canvas.xview("scroll", step, "units")
-        else:
-            if self._parent_canvas.yview() != (0.0, 1.0):
-                self._parent_canvas.yview("scroll", step, "units")
+    # Tk internals (e.g. a combobox's popdown) report their path as a str
+    if isinstance(event.widget, str) or not self._check_if_valid_scroll(event.widget):
+        return
+    step = _wheel_units(event)
+    if not step:
+        return
+    canvas = self._parent_canvas
+    if self._shift_pressed:
+        if canvas.xview() != (0.0, 1.0):
+            canvas.xview_scroll(step, "units")
+    elif canvas.yview() != (0.0, 1.0):
+        canvas.yview_scroll(step, "units")
+
+
+_ctk_scrollable_frame_init = ctk.CTkScrollableFrame.__init__
+
+
+def _patched_ctk_scrollable_frame_init(self, *args, **kwargs):
+    """On Linux, customtkinter 6 only binds the X11 Button-4/5 wheel
+    events, which Tk 9 no longer generates: it reports the wheel as
+    <MouseWheel> there, as on Windows/macOS. Bind both, so the wheel works
+    with either Tk version (Tk 8.6 never sends <MouseWheel> on X11, so
+    nothing scrolls twice)."""
+    _ctk_scrollable_frame_init(self, *args, **kwargs)
+    if sys.platform.startswith("linux"):
+        self.bind_all("<MouseWheel>", self._mouse_wheel_all, add=True)
 
 
 ctk.CTkScrollableFrame._mouse_wheel_all = _patched_ctk_mouse_wheel_all
-
-
-def _bind_x11_wheel(widget, canvas):
-    """Binds X11's wheel events (Button-4/5, Linux with Tk 8.6) on `widget`
-    to scroll `canvas` — CTk only handles <MouseWheel>, through its global
-    handler above, which already covers every child widget on Windows/macOS.
-    Binding <MouseWheel> here too would scroll twice per notch.
-
-    Same guard as CTk's handler: never scroll a list that fits entirely in
-    view, or Tk shifts its content down and leaves an empty gap at the top.
-    """
-    def scroll(units):
-        if canvas.yview() != (0.0, 1.0):
-            canvas.yview_scroll(units, "units")
-    widget.bind("<Button-4>", lambda e: scroll(-1), add="+")
-    widget.bind("<Button-5>", lambda e: scroll(1), add="+")
+ctk.CTkScrollableFrame.__init__ = _patched_ctk_scrollable_frame_init
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -488,13 +495,6 @@ class VentoyIsoUpdaterApp(ctk.CTk):
 
     # ─────────────────────────── TABLE ──────────────────────────────────────
 
-    def _bind_table_scroll(self, widget):
-        """Propage la molette de tous les widgets enfants vers le canvas de la table."""
-        canvas = self.table._parent_canvas
-        _bind_x11_wheel(widget, canvas)
-        for child in widget.winfo_children():
-            self._bind_table_scroll(child)
-
     def _render_table(self):
         for w in self.table.winfo_children():
             w.destroy()
@@ -594,9 +594,6 @@ class VentoyIsoUpdaterApp(ctk.CTk):
             fg_color="#7f1c1c", hover_color="#a93226",
             command=lambda i=iso: self._confirm_delete(i)
         ).pack(side="left", padx=2)
-
-        # Propage la molette depuis tous les enfants de la ligne vers le canvas
-        self._bind_table_scroll(row)
 
     def _update_row(self, iso: IsoEntry, result: CheckResult):
         self.check_results[iso.filename] = result
@@ -1397,25 +1394,6 @@ class DistroPickerDialog(ctk.CTkToplevel):
         self._populate_distro_list()
         self._render_queue()
 
-    # ── Scroll molette : forward tous les events vers le canvas interne ──────
-
-    def _bind_scroll_to(self, widget, canvas):
-        """Recursively forwards the mouse wheel to the given canvas."""
-        _bind_x11_wheel(widget, canvas)
-        for child in widget.winfo_children():
-            self._bind_scroll_to(child, canvas)
-
-    def _bind_scroll(self, widget):
-        try:
-            self._bind_scroll_to(widget, self._distro_scroll._parent_canvas)
-        except AttributeError:
-            pass
-
-    def _bind_versions_scroll(self, widget):
-        try:
-            self._bind_scroll_to(widget, self.versions_frame._parent_canvas)
-        except AttributeError:
-            pass
 
     def _populate_distro_list(self):
         """Reconstruit uniquement la liste de distros (filtre de recherche)."""
@@ -1450,7 +1428,6 @@ class DistroPickerDialog(ctk.CTkToplevel):
                 font=ctk.CTkFont(size=10, weight="bold"), text_color="gray55"
             )
             lbl.grid(row=row_idx, column=0, padx=8, pady=(10, 2), sticky="w")
-            self._bind_scroll(lbl)
             row_idx += 1
 
             for d in categories[cat]:
@@ -1481,7 +1458,6 @@ class DistroPickerDialog(ctk.CTkToplevel):
                 )
                 btn.grid(row=row_idx, column=0, sticky="ew", padx=4, pady=1)
                 self._distro_btns[d["id"]] = btn
-                self._bind_scroll(btn)
                 row_idx += 1
 
     def _select_distro(self, distro_cfg: dict):
@@ -1612,7 +1588,6 @@ class DistroPickerDialog(ctk.CTkToplevel):
                 state=("disabled" if already_queued else "normal"),
                 command=lambda vi=v: self._add_to_queue(vi)
             ).grid(row=0, column=2, padx=8, pady=3)
-            self._bind_versions_scroll(row)
 
     def _add_to_queue(self, v):
         """Adds this version to the batch download queue instead of downloading it right away."""
@@ -1644,11 +1619,6 @@ class DistroPickerDialog(ctk.CTkToplevel):
             self._render_versions()
             self._render_queue()
 
-    def _bind_queue_scroll(self, widget):
-        try:
-            self._bind_scroll_to(widget, self.queue_list._parent_canvas)
-        except AttributeError:
-            pass
 
     def _render_queue(self):
         for w in self.queue_list.winfo_children():
@@ -1688,7 +1658,6 @@ class DistroPickerDialog(ctk.CTkToplevel):
                         state=("disabled" if self._batch_running else "normal"),
                         command=lambda idx=i: self._remove_from_queue(idx)
                     ).grid(row=0, column=2, padx=6, pady=2)
-                self._bind_queue_scroll(row)
 
         self.lbl_queue_header.configure(text=t("File d'attente") + f" ({len(self._queue)})")
         self.btn_download_queue.configure(
@@ -2318,14 +2287,6 @@ class ThemeEditorDialog(ctk.CTkToplevel):
 
         self._build()
 
-    # ─────────────────────────── SCROLL HELPER ──────────────────────────────
-
-    def _bind_scroll_to(self, widget, canvas):
-        """Recursively forwards the mouse wheel from all children to the given canvas."""
-        _bind_x11_wheel(widget, canvas)
-        for child in widget.winfo_children():
-            self._bind_scroll_to(child, canvas)
-
     # ─────────────────────────── BUILD ──────────────────────────────────────
 
     def _build(self):
@@ -2549,8 +2510,6 @@ class ThemeEditorDialog(ctk.CTkToplevel):
             command=lambda f=filename: self._img_replace(f)
         ).grid(row=2, column=0, pady=(0, 8))
 
-        self._bind_scroll_to(tile, self._img_scroll._parent_canvas)
-
     def _img_import(self):
         paths = filedialog.askopenfilenames(
             title=t('Importer des images PNG'),
@@ -2710,8 +2669,6 @@ class ThemeEditorDialog(ctk.CTkToplevel):
             fg_color="#7f1c1c", hover_color="#a93226",
             command=lambda f=filename: self._icons_delete(f)
         ).grid(row=2, column=0, pady=(0, 8))
-
-        self._bind_scroll_to(tile, self._icons_scroll._parent_canvas)
 
     def _icons_import(self):
         if not self._icons_dir:
@@ -3388,14 +3345,6 @@ class LogoRepoBrowserDialog(ctk.CTkToplevel):
         "sel_installed": ("#1a4040",     "#1e4a50"),
     }
 
-    def _bind_scroll_repo(self, widget):
-        """Forwarde la molette vers le canvas interne du CTkScrollableFrame."""
-        try:
-            canvas = self._listbox._parent_canvas
-        except AttributeError:
-            return
-        _bind_x11_wheel(widget, canvas)
-
     def _refresh_list(self):
         self._refresh_job = None
         query = self._search_var.get().strip().lower()
@@ -3445,7 +3394,6 @@ class LogoRepoBrowserDialog(ctk.CTkToplevel):
             )
             btn.grid(row=i, column=0, sticky="ew", padx=4, pady=1)
             self._logo_btns[fname] = btn
-            self._bind_scroll_repo(btn)
 
         if end < len(files):
             self.after(0, lambda: self.winfo_exists() and self._render_batch(end))

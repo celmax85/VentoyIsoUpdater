@@ -12,7 +12,7 @@
 # or, if pip-tools is available:
 #   pip-compile requirements.txt -o requirements-lock.txt
 
-customtkinter==5.2.2
+customtkinter==6.0.0
 darkdetect==0.8.0
 pillow==13.0.0
 requests==2.34.2
