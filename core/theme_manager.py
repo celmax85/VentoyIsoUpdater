@@ -15,6 +15,7 @@ import shutil
 from typing import Callable, Optional
 
 from core.downloader import download_logo
+from core.logger import logger
 
 
 # ── Reading / writing ventoy.json ────────────────────────────────────────────
@@ -187,6 +188,110 @@ def add_menu_class_entry(
     return save_ventoy_json(ventoy_json_path, data)
 
 
+def add_menu_class_key(ventoy_json_path: str, key: str, grub_class: str) -> bool:
+    """
+    Adds a {"key": key, "class": grub_class} menu_class entry: every ISO
+    whose filename contains key gets that class's icon. Ventoy checks key
+    rules before parent rules, so this also overrides a parent rule.
+
+    Ventoy returns the first key rule that matches, so the new rule goes
+    ahead of any existing key it contains ("xubuntu-24.04" must come before
+    "ubuntu-24.04", or the Xubuntu ISO would get the Ubuntu icon).
+
+    Does nothing if this key already has a rule.
+    Returns True if an entry was added.
+    """
+    if not key or not ventoy_json_path or not os.path.isfile(ventoy_json_path):
+        return False
+
+    data = load_ventoy_json(ventoy_json_path)
+    menu_class = data.get("menu_class", [])
+    if any(entry.get("key") == key for entry in menu_class):
+        return False
+
+    pos = next(
+        (i for i, entry in enumerate(menu_class)
+         if entry.get("key") and entry["key"] in key),
+        len(menu_class),
+    )
+    menu_class.insert(pos, {"key": key, "class": grub_class})
+    data["menu_class"] = menu_class
+    return save_ventoy_json(ventoy_json_path, data)
+
+
+# Image types Ventoy lists in its boot menu: a "parent" rule gives its class
+# to all of them, not only to the .iso files the scanner reports
+_VENTOY_IMAGE_EXTS = (".iso", ".img", ".wim", ".vhd", ".vhdx", ".efi", ".vtoy", ".dat")
+
+
+def _iso_key(filename: str) -> str:
+    """Key rule for one ISO: its filename without the extension. Not the
+    full filename, because Ventoy requires a key strictly shorter than the
+    name it matches (patlen < namelen in ventoy_plugin_get_menu_class)."""
+    stem = os.path.splitext(filename)[0]
+    return stem if 0 < len(stem) < len(filename) else ""
+
+
+def _has_other_images(entries: list) -> bool:
+    """True if the folder holding these ISOs also has bootable images that
+    aren't among them (other image types, files the scan didn't see)."""
+    known = {e.filename for e in entries}
+    for folder in {os.path.dirname(e.path) for e in entries if e.path}:
+        try:
+            names = os.listdir(folder)
+        except OSError as exc:
+            logger.debug("Cannot list %s: %s", folder, exc)
+            continue
+        if any(n.lower().endswith(_VENTOY_IMAGE_EXTS) and n not in known for n in names):
+            return True
+    return False
+
+
+def apply_menu_classes(
+    ventoy_json_path: str,
+    iso_entries: list,
+    distros_db: dict,
+    allowed_classes: Optional[set] = None,
+) -> None:
+    """
+    Writes the menu_class rules that give each recognized ISO its distro's
+    icon in the Ventoy menu.
+
+    A folder whose images all belong to the same class gets one "parent"
+    rule. A folder that mixes distros (or holds unrecognized images) gets
+    one "key" rule per recognized ISO instead: a parent rule would give
+    every image in it the first distro's icon.
+
+    allowed_classes, when given, limits the rules written to those classes
+    (e.g. the ones whose logo is present); the other ISOs still count when
+    deciding whether a folder is mixed.
+    """
+    distros = {d["id"]: d for d in distros_db.get("distros", [])}
+
+    def class_of(entry) -> Optional[str]:
+        cfg = distros.get(entry.distro_id) if entry.distro_id else None
+        return cfg.get("grub_class") if cfg else None
+
+    by_folder: dict[str, list] = {}
+    for entry in iso_entries:
+        by_folder.setdefault(_normalize_folder(entry.folder), []).append(entry)
+
+    def allowed(cls: Optional[str]) -> bool:
+        return bool(cls) and (allowed_classes is None or cls in allowed_classes)
+
+    for folder, entries in by_folder.items():
+        classes = {class_of(e) for e in entries}
+        if len(classes) == 1 and None not in classes and not _has_other_images(entries):
+            cls = classes.pop()
+            if allowed(cls):
+                add_menu_class_entry(ventoy_json_path, folder, cls)
+            continue
+        for entry in entries:
+            cls = class_of(entry)
+            if allowed(cls):
+                add_menu_class_key(ventoy_json_path, _iso_key(entry.filename), cls)
+
+
 # ── Logo management ───────────────────────────────────────────────────────────
 
 def sync_logos(
@@ -229,10 +334,7 @@ def sync_logos(
             needed[grub_class] = {
                 "logo_url": logo_url,
                 "name": distro_cfg["name"],
-                "folders": set(),
             }
-        # Collects the folders for the menu_class update (drive root included)
-        needed[grub_class]["folders"].add(entry.folder or "/")
 
     results: dict[str, dict] = {}
 
@@ -263,14 +365,15 @@ def sync_logos(
 
         success = results[logo_filename]["success"]
 
-        # Updates ventoy.json if requested and the logo succeeded
-        if ventoy_json_path and success:
-            # One rule per ISO folder (no-op for folders already mapped)
-            for folder in info["folders"]:
-                add_menu_class_entry(ventoy_json_path, folder, grub_class)
-
         if on_progress:
             on_progress(info["name"], success)
+
+    # Updates ventoy.json for the classes whose logo is available
+    if ventoy_json_path:
+        ok_classes = {
+            filename[:-len(".png")] for filename, r in results.items() if r["success"]
+        }
+        apply_menu_classes(ventoy_json_path, iso_entries, distros_db, ok_classes)
 
     return results
 
@@ -307,19 +410,19 @@ def get_unmatched_isos(
     ventoy_json_path: str,
 ) -> list:
     """
-    Returns the IsoEntry objects whose folder isn't covered by any
-    menu_class rule. Useful for telling the user which ones have no icon.
+    Returns the IsoEntry objects that no menu_class rule matches. Useful for telling the user which ones have no icon.
     """
     if not ventoy_json_path:
         return []
     # Same rules Ventoy applies to ISO files: "key" = case-sensitive
     # substring of the filename, "parent" = exact containing folder
     rules = load_ventoy_json(ventoy_json_path).get("menu_class", [])
+    # (a key must also be strictly shorter than the filename)
     keys = [r["key"] for r in rules if r.get("key")]
     parents = {r["parent"] for r in rules if r.get("parent")}
 
     return [
         entry for entry in iso_entries
         if _normalize_folder(entry.folder) not in parents
-        and not any(k in entry.filename for k in keys)
+        and not any(k in entry.filename and len(k) < len(entry.filename) for k in keys)
     ]
